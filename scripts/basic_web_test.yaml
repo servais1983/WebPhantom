@@ -1,0 +1,6 @@
+name: Analyse basique d'une app web
+target: http://testphp.vulnweb.com
+steps:
+  - type: recon
+  - type: scan
+  - type: ai_analysis
