@@ -18,7 +18,9 @@ def main():
     ai_cmd.add_argument("url")
 
     run_cmd = subparsers.add_parser("run")
-    run_cmd.add_argument("file")
+    run_cmd.add_argument("file", help="YAML script file to execute")
+    run_cmd.add_argument("--target", help="Target URL to override the one in the YAML file")
+    run_cmd.add_argument("url", nargs="?", help="Target URL (alternative to --target)")
 
     args = parser.parse_args()
 
@@ -29,7 +31,12 @@ def main():
     elif args.command == "ai":
         ai_analyzer.run(args.url)
     elif args.command == "run":
-        run_script_yaml(args.file)
+        target_url = None
+        if hasattr(args, 'target') and args.target:
+            target_url = args.target
+        elif hasattr(args, 'url') and args.url:
+            target_url = args.url
+        run_script_yaml(args.file, target_url)
     else:
         parser.print_help()
 
