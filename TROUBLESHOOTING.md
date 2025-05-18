@@ -24,9 +24,9 @@ source webphantom_env/bin/activate
 pip install -r requirements.txt
 ```
 
-### Erreur lors de la compilation de sentencepiece
+### Erreur lors de l'installation des dépendances système
 
-**Problème** : Lors de l'installation des dépendances, vous obtenez une erreur concernant sentencepiece et cmake non trouvé.
+**Problème** : Lors de l'installation des dépendances, vous obtenez des erreurs liées aux dépendances système.
 
 **Solution** : Installez les dépendances système nécessaires et vérifiez leur installation :
 
@@ -55,22 +55,34 @@ pip install -r requirements.txt
 source webphantom_env/bin/activate
 
 # Installer les dépendances de base
-pip install requests beautifulsoup4 pyjwt bcrypt
+pip install requests beautifulsoup4 pyjwt bcrypt nltk
 
 # Puis installer les autres dépendances
 pip install -r requirements.txt
 ```
 
-### Installation sans sentencepiece (alternative)
+### Installation progressive des dépendances
 
-Si vous continuez à avoir des problèmes avec sentencepiece, vous pouvez temporairement l'exclure :
+Si vous rencontrez des problèmes avec l'installation complète, essayez d'installer les dépendances progressivement :
 
 ```bash
-# Créer une version modifiée des requirements sans sentencepiece
-grep -v "sentencepiece" requirements.txt > requirements_minimal.txt
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
 
-# Installer ces dépendances
-pip install -r requirements_minimal.txt
+# Installer les dépendances une par une
+pip install requests
+pip install beautifulsoup4
+pip install pyjwt
+pip install bcrypt
+pip install nltk
+pip install llama-cpp-python
+pip install weasyprint
+pip install pycryptodome
+pip install PyYAML
+pip install Jinja2
+pip install Markdown
+pip install tqdm
+pip install colorama
 ```
 
 ## Vérification de l'installation
@@ -85,6 +97,7 @@ source webphantom_env/bin/activate
 pip list | grep requests
 pip list | grep beautifulsoup4
 pip list | grep llama-cpp-python
+pip list | grep nltk
 ```
 
 ## Problèmes d'exécution
@@ -101,6 +114,27 @@ source webphantom_env/bin/activate
 
 # Exécuter le scénario avec une URL cible explicite
 python webphantom.py run scripts/advanced_web_test.yaml --target http://example.com
+```
+
+### Erreur lors du téléchargement des ressources NLTK
+
+**Problème** : Erreurs lors du téléchargement des ressources NLTK.
+
+**Solution** : Téléchargez manuellement les ressources NLTK nécessaires :
+
+```bash
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Lancer Python
+python
+
+# Dans l'interpréteur Python
+import nltk
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('wordnet')
+exit()
 ```
 
 ## Autres problèmes

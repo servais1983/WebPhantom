@@ -1,307 +1,346 @@
 """
-Module d'intégration du modèle LLaMA pour l'analyse de sécurité web.
-Ce module permet de charger et d'utiliser le modèle LLaMA pour analyser
-les vulnérabilités et les risques de sécurité dans les applications web.
+Module d'intégration du modèle LLaMA pour l'analyse de sécurité.
+Ce module permet d'utiliser le modèle LLaMA pour analyser les applications web
+et identifier des vulnérabilités complexes.
 """
 
 import os
 import sys
-import requests
-import hashlib
-from pathlib import Path
 import logging
+import hashlib
+import json
+import nltk
+from pathlib import Path
+from tqdm import tqdm
+import requests
+from llama_cpp import Llama
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("llm_integration")
 
-# Répertoire pour stocker les modèles
-MODELS_DIR = os.path.expanduser("~/.webphantom/models")
+# Répertoire pour les modèles
+HOME_DIR = os.path.expanduser("~")
+WEBPHANTOM_DIR = os.path.join(HOME_DIR, ".webphantom")
+MODELS_DIR = os.path.join(WEBPHANTOM_DIR, "models")
 
-# URL et hash du modèle LLaMA par défaut (version légère pour les tests)
-DEFAULT_MODEL = {
-    "name": "llama-2-7b-chat.Q4_K_M.gguf",
-    "url": "https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7b-chat.Q4_K_M.gguf",
-    "md5": "e0b99920cf47b94c78d217cd65515e74"
+# URL des modèles
+MODEL_URLS = {
+    "llama-7b-q4": "https://huggingface.co/TheBloke/LLaMA-7B-GGUF/resolve/main/llama-7b.Q4_K_M.gguf",
+    "llama-13b-q4": "https://huggingface.co/TheBloke/LLaMA-13B-GGUF/resolve/main/llama-13b.Q4_K_M.gguf",
+}
+
+# Hachage MD5 des modèles pour vérification
+MODEL_HASHES = {
+    "llama-7b-q4": "a87c04c6fa7f4bea17e68fcfd55e5b2d",
+    "llama-13b-q4": "b3dc9a7c1bdcb68b5f6e96b3c8e2f48d",
 }
 
 def ensure_models_dir():
-    """Crée le répertoire des modèles s'il n'existe pas."""
+    """Assure que le répertoire des modèles existe."""
     os.makedirs(MODELS_DIR, exist_ok=True)
     logger.info(f"Répertoire des modèles: {MODELS_DIR}")
 
-def download_model(model_info=DEFAULT_MODEL, force=False):
-    """
-    Télécharge le modèle LLaMA si nécessaire.
+def download_model(model_name):
+    """Télécharge un modèle s'il n'existe pas déjà."""
+    if model_name not in MODEL_URLS:
+        logger.error(f"Modèle {model_name} non disponible")
+        return None
     
-    Args:
-        model_info: Dictionnaire contenant les informations du modèle
-        force: Force le téléchargement même si le fichier existe
-        
-    Returns:
-        Path: Chemin vers le fichier du modèle
-    """
-    ensure_models_dir()
-    model_path = Path(MODELS_DIR) / model_info["name"]
+    model_path = os.path.join(MODELS_DIR, f"{model_name}.gguf")
+    if os.path.exists(model_path):
+        logger.info(f"Modèle {model_name} déjà téléchargé")
+        return model_path
     
-    # Vérifier si le modèle existe déjà
-    if model_path.exists() and not force:
-        logger.info(f"Le modèle {model_info['name']} existe déjà.")
-        # Vérifier l'intégrité du fichier
-        if verify_model_integrity(model_path, model_info["md5"]):
-            logger.info("Vérification de l'intégrité du modèle: OK")
-            return model_path
-        else:
-            logger.warning("Intégrité du modèle compromise, téléchargement à nouveau...")
+    url = MODEL_URLS[model_name]
+    logger.info(f"Téléchargement du modèle {model_name} depuis {url}")
     
-    # Télécharger le modèle
-    logger.info(f"Téléchargement du modèle {model_info['name']}...")
     try:
-        with requests.get(model_info["url"], stream=True) as r:
-            r.raise_for_status()
-            total_size = int(r.headers.get('content-length', 0))
-            block_size = 8192
-            downloaded = 0
-            
-            with open(model_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=block_size):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        # Afficher la progression
-                        progress = int(50 * downloaded / total_size)
-                        sys.stdout.write(f"\r[{'=' * progress}{' ' * (50 - progress)}] {downloaded}/{total_size} bytes")
-                        sys.stdout.flush()
-            
-            print()  # Nouvelle ligne après la barre de progression
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
         
-        # Vérifier l'intégrité après téléchargement
-        if verify_model_integrity(model_path, model_info["md5"]):
-            logger.info("Téléchargement et vérification du modèle: OK")
-            return model_path
-        else:
-            logger.error("Le modèle téléchargé est corrompu.")
+        total_size = int(response.headers.get('content-length', 0))
+        block_size = 1024  # 1 Kibibyte
+        progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
+        
+        with open(model_path, 'wb') as f:
+            for data in response.iter_content(block_size):
+                progress_bar.update(len(data))
+                f.write(data)
+        
+        progress_bar.close()
+        
+        if total_size != 0 and progress_bar.n != total_size:
+            logger.error("Erreur lors du téléchargement du modèle")
             return None
-            
+        
+        logger.info(f"Modèle {model_name} téléchargé avec succès")
+        return model_path
+    
     except Exception as e:
         logger.error(f"Erreur lors du téléchargement du modèle: {e}")
-        if model_path.exists():
-            model_path.unlink()  # Supprimer le fichier partiellement téléchargé
         return None
 
-def verify_model_integrity(model_path, expected_md5):
-    """
-    Vérifie l'intégrité du modèle en comparant son hash MD5.
+def verify_model_integrity(model_path, expected_hash):
+    """Vérifie l'intégrité d'un modèle en comparant son hash MD5."""
+    logger.info(f"Vérification de l'intégrité du modèle {os.path.basename(model_path)}...")
     
-    Args:
-        model_path: Chemin vers le fichier du modèle
-        expected_md5: Hash MD5 attendu
-        
-    Returns:
-        bool: True si l'intégrité est vérifiée, False sinon
-    """
-    logger.info(f"Vérification de l'intégrité du modèle {model_path.name}...")
+    if not os.path.exists(model_path):
+        logger.error(f"Le fichier {model_path} n'existe pas")
+        return False
+    
     md5_hash = hashlib.md5()
     with open(model_path, "rb") as f:
-        # Lire le fichier par morceaux pour éviter de charger tout en mémoire
-        for chunk in iter(lambda: f.read(4096), b""):
-            md5_hash.update(chunk)
+        for byte_block in iter(lambda: f.read(4096), b""):
+            md5_hash.update(byte_block)
     
-    file_md5 = md5_hash.hexdigest()
-    return file_md5 == expected_md5
+    file_hash = md5_hash.hexdigest()
+    
+    if file_hash == expected_hash:
+        logger.info(f"Intégrité du modèle vérifiée")
+        return True
+    else:
+        logger.warning(f"Intégrité du modèle non vérifiée. Hash attendu: {expected_hash}, hash obtenu: {file_hash}")
+        return False
 
-def load_llama_model(model_path=None):
-    """
-    Charge le modèle LLaMA.
+def load_model(model_name="llama-7b-q4", n_ctx=2048, n_gpu_layers=0):
+    """Charge un modèle LLaMA."""
+    ensure_models_dir()
     
-    Args:
-        model_path: Chemin vers le fichier du modèle (optionnel)
-        
-    Returns:
-        object: Instance du modèle LLaMA chargé
-    """
-    try:
-        from llama_cpp import Llama
-    except ImportError:
-        logger.error("La bibliothèque llama-cpp-python n'est pas installée.")
-        logger.info("Installation avec: pip install llama-cpp-python")
-        return None
-    
-    if model_path is None:
-        model_path = download_model()
-        if model_path is None:
+    model_path = os.path.join(MODELS_DIR, f"{model_name}.gguf")
+    if not os.path.exists(model_path):
+        model_path = download_model(model_name)
+        if not model_path:
+            logger.error(f"Impossible de charger le modèle {model_name}")
             return None
     
-    logger.info(f"Chargement du modèle LLaMA depuis {model_path}...")
+    if model_name in MODEL_HASHES:
+        if not verify_model_integrity(model_path, MODEL_HASHES[model_name]):
+            logger.warning("L'intégrité du modèle n'a pas pu être vérifiée, mais le chargement va continuer")
+    
     try:
-        # Paramètres optimisés pour un bon équilibre performance/mémoire
+        logger.info(f"Chargement du modèle {model_name}...")
         model = Llama(
-            model_path=str(model_path),
-            n_ctx=2048,           # Taille du contexte
-            n_batch=512,          # Taille du batch pour l'inférence
-            n_gpu_layers=0        # Nombre de couches à décharger sur GPU (0 pour CPU uniquement)
+            model_path=model_path,
+            n_ctx=n_ctx,
+            n_gpu_layers=n_gpu_layers,
+            verbose=False
         )
-        logger.info("Modèle LLaMA chargé avec succès")
+        logger.info(f"Modèle {model_name} chargé avec succès")
         return model
+    
     except Exception as e:
-        logger.error(f"Erreur lors du chargement du modèle LLaMA: {e}")
+        logger.error(f"Erreur lors du chargement du modèle: {e}")
         return None
 
-def analyze_with_llama(model, url, html_content, headers, forms_data=None):
-    """
-    Analyse une page web avec le modèle LLaMA pour détecter des vulnérabilités.
-    
-    Args:
-        model: Instance du modèle LLaMA
-        url: URL de la page analysée
-        html_content: Contenu HTML de la page
-        headers: En-têtes HTTP de la réponse
-        forms_data: Données des formulaires détectés (optionnel)
-        
-    Returns:
-        dict: Résultats de l'analyse avec les vulnérabilités détectées et recommandations
-    """
-    if model is None:
-        logger.error("Aucun modèle LLaMA n'a été chargé.")
-        return {
-            "success": False,
-            "error": "Modèle LLaMA non disponible",
-            "vulnerabilities": [],
-            "recommendations": ["Installer llama-cpp-python et télécharger le modèle"]
-        }
-    
-    # Limiter la taille du HTML pour éviter de dépasser le contexte du modèle
-    html_sample = html_content[:10000] if len(html_content) > 10000 else html_content
-    
-    # Construire le prompt pour l'analyse de sécurité
-    prompt = f"""
-Tu es un expert en sécurité web chargé d'analyser une page web pour détecter des vulnérabilités.
-
-URL: {url}
-
-En-têtes HTTP:
-{headers}
-
-Extrait du HTML:
-```html
-{html_sample}
-```
-
-"""
-    
-    if forms_data:
-        prompt += f"""
-Formulaires détectés:
-{forms_data}
-"""
-    
-    prompt += """
-Analyse cette page web et identifie les vulnérabilités potentielles parmi les suivantes:
-1. Injections (SQL, NoSQL, OS, LDAP)
-2. Cross-Site Scripting (XSS)
-3. Broken Authentication
-4. Insecure Direct Object References (IDOR)
-5. Security Misconfiguration
-6. Cross-Site Request Forgery (CSRF)
-7. Server-Side Request Forgery (SSRF)
-8. XML External Entities (XXE)
-9. Insecure Deserialization
-10. Using Components with Known Vulnerabilities
-11. Insufficient Logging & Monitoring
-
-Pour chaque vulnérabilité identifiée, fournis:
-- Une description du problème
-- Un niveau de risque (Critique, Élevé, Moyen, Faible)
-- Une explication technique
-- Des recommandations pour corriger le problème
-
-Format de réponse:
-{
-  "vulnerabilities": [
-    {
-      "type": "Type de vulnérabilité",
-      "risk_level": "Niveau de risque",
-      "description": "Description du problème",
-      "technical_details": "Explication technique",
-      "recommendations": ["Recommandation 1", "Recommandation 2"]
-    }
-  ],
-  "general_recommendations": ["Recommandation générale 1", "Recommandation générale 2"]
-}
-"""
+def initialize_nltk():
+    """Initialise NLTK et télécharge les ressources nécessaires."""
+    nltk_data_dir = os.path.join(WEBPHANTOM_DIR, "nltk_data")
+    os.makedirs(nltk_data_dir, exist_ok=True)
+    nltk.data.path.append(nltk_data_dir)
     
     try:
-        # Générer la réponse avec le modèle LLaMA
-        logger.info("Analyse en cours avec LLaMA...")
+        # Télécharger les ressources NLTK nécessaires
+        nltk.download('punkt', download_dir=nltk_data_dir)
+        nltk.download('stopwords', download_dir=nltk_data_dir)
+        nltk.download('wordnet', download_dir=nltk_data_dir)
+        logger.info("Ressources NLTK téléchargées avec succès")
+        return True
+    except Exception as e:
+        logger.error(f"Erreur lors du téléchargement des ressources NLTK: {e}")
+        return False
+
+def preprocess_text(text):
+    """Prétraite le texte pour l'analyse."""
+    # Utiliser NLTK pour tokenizer et nettoyer le texte
+    from nltk.tokenize import word_tokenize
+    from nltk.corpus import stopwords
+    
+    try:
+        # Tokenization
+        tokens = word_tokenize(text.lower())
+        
+        # Suppression des stop words
+        stop_words = set(stopwords.words('english'))
+        filtered_tokens = [w for w in tokens if w not in stop_words]
+        
+        return " ".join(filtered_tokens)
+    except Exception as e:
+        logger.error(f"Erreur lors du prétraitement du texte: {e}")
+        return text
+
+def analyze_web_content(model, url, html_content, headers=None, response_time=None):
+    """Analyse le contenu d'une page web pour détecter des vulnérabilités."""
+    if not model:
+        logger.error("Modèle non chargé")
+        return []
+    
+    # Prétraiter le contenu HTML
+    processed_content = preprocess_text(html_content[:10000])  # Limiter la taille pour éviter les dépassements de contexte
+    
+    # Construire le prompt pour le modèle
+    prompt = f"""
+    Analyze the following web page for security vulnerabilities:
+    
+    URL: {url}
+    
+    HTML Content (excerpt):
+    {processed_content}
+    
+    Headers:
+    {json.dumps(headers) if headers else 'Not provided'}
+    
+    Response Time: {response_time if response_time else 'Not provided'}
+    
+    Identify potential security vulnerabilities including but not limited to:
+    - XSS (Cross-Site Scripting)
+    - SQL Injection
+    - CSRF (Cross-Site Request Forgery)
+    - SSRF (Server-Side Request Forgery)
+    - XXE (XML External Entity)
+    - Open Redirects
+    - Insecure Deserialization
+    - Security Misconfigurations
+    
+    For each vulnerability, provide:
+    1. Type of vulnerability
+    2. Evidence from the content
+    3. Severity level (Low, Medium, High, Critical)
+    4. Potential impact
+    5. Remediation suggestions
+    
+    Format your response as a JSON array of vulnerability objects.
+    """
+    
+    try:
+        logger.info(f"Analyse du contenu de {url} avec LLaMA...")
+        
+        # Générer la réponse du modèle
         response = model.create_completion(
             prompt,
             max_tokens=2048,
             temperature=0.1,
             top_p=0.9,
-            stop=["```"],
+            stop=["</s>", "\n\n\n"],
             echo=False
         )
         
         # Extraire et parser la réponse
-        llm_response = response["choices"][0]["text"].strip()
+        response_text = response["choices"][0]["text"].strip()
         
-        # Tentative de parsing du JSON dans la réponse
-        import json
-        import re
+        # Tenter de parser la réponse comme JSON
+        try:
+            # Trouver le début et la fin du JSON dans la réponse
+            start_idx = response_text.find('[')
+            end_idx = response_text.rfind(']') + 1
+            
+            if start_idx >= 0 and end_idx > start_idx:
+                json_str = response_text[start_idx:end_idx]
+                vulnerabilities = json.loads(json_str)
+                logger.info(f"Analyse terminée. {len(vulnerabilities)} vulnérabilités potentielles détectées.")
+                return vulnerabilities
+            else:
+                logger.warning("Impossible de trouver un tableau JSON dans la réponse")
+                return []
         
-        # Rechercher un objet JSON dans la réponse
-        json_match = re.search(r'({[\s\S]*})', llm_response)
-        if json_match:
-            try:
-                result = json.loads(json_match.group(1))
-                result["success"] = True
-                return result
-            except json.JSONDecodeError:
-                pass
-        
-        # Si le parsing JSON échoue, retourner la réponse brute
-        return {
-            "success": True,
-            "raw_analysis": llm_response,
-            "vulnerabilities": [],
-            "general_recommendations": ["Analyse manuelle requise pour interpréter les résultats"]
-        }
-        
+        except json.JSONDecodeError:
+            logger.warning("Impossible de parser la réponse comme JSON")
+            
+            # Tenter une extraction manuelle des vulnérabilités
+            vulnerabilities = []
+            lines = response_text.split('\n')
+            current_vuln = {}
+            
+            for line in lines:
+                if "Type of vulnerability:" in line:
+                    if current_vuln and "type" in current_vuln:
+                        vulnerabilities.append(current_vuln)
+                    current_vuln = {"type": line.split(":", 1)[1].strip()}
+                elif "Evidence:" in line:
+                    current_vuln["evidence"] = line.split(":", 1)[1].strip()
+                elif "Severity:" in line:
+                    current_vuln["severity"] = line.split(":", 1)[1].strip()
+                elif "Impact:" in line:
+                    current_vuln["impact"] = line.split(":", 1)[1].strip()
+                elif "Remediation:" in line:
+                    current_vuln["remediation"] = line.split(":", 1)[1].strip()
+            
+            if current_vuln and "type" in current_vuln:
+                vulnerabilities.append(current_vuln)
+            
+            logger.info(f"Analyse terminée. {len(vulnerabilities)} vulnérabilités potentielles extraites manuellement.")
+            return vulnerabilities
+    
     except Exception as e:
-        logger.error(f"Erreur lors de l'analyse avec LLaMA: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "vulnerabilities": [],
-            "recommendations": ["Réessayer avec un modèle plus petit ou plus de ressources"]
-        }
+        logger.error(f"Erreur lors de l'analyse du contenu: {e}")
+        return []
 
-# Fonction principale pour l'analyse
-def analyze_security(url, html_content, headers, forms_data=None, custom_model_path=None):
-    """
-    Fonction principale pour l'analyse de sécurité avec LLaMA.
+def run(url, options=None):
+    """Point d'entrée principal pour l'analyse IA."""
+    if not options:
+        options = {}
     
-    Args:
-        url: URL de la page analysée
-        html_content: Contenu HTML de la page
-        headers: En-têtes HTTP de la réponse
-        forms_data: Données des formulaires détectés (optionnel)
-        custom_model_path: Chemin vers un modèle personnalisé (optionnel)
+    # Initialiser NLTK
+    initialize_nltk()
+    
+    # Charger le modèle
+    model_name = options.get("model", "llama-7b-q4")
+    n_ctx = options.get("context_size", 2048)
+    n_gpu_layers = options.get("gpu_layers", 0)
+    
+    model = load_model(model_name, n_ctx, n_gpu_layers)
+    if not model:
+        logger.error("Impossible de charger le modèle LLaMA")
+        print("Erreur: Impossible de charger le modèle LLaMA")
+        return
+    
+    # Récupérer le contenu de la page
+    try:
+        import requests
+        from time import time
         
-    Returns:
-        dict: Résultats de l'analyse
-    """
-    model_path = custom_model_path
-    if model_path is None:
-        model_path = download_model()
+        start_time = time()
+        response = requests.get(url, headers={
+            "User-Agent": "WebPhantom Security Scanner"
+        })
+        response_time = time() - start_time
+        
+        html_content = response.text
+        headers = dict(response.headers)
+        
+        # Analyser le contenu
+        vulnerabilities = analyze_web_content(model, url, html_content, headers, response_time)
+        
+        # Afficher les résultats
+        if vulnerabilities:
+            print(f"\n[+] Analyse IA avec LLaMA terminée. {len(vulnerabilities)} vulnérabilités potentielles détectées:")
+            for i, vuln in enumerate(vulnerabilities, 1):
+                vuln_type = vuln.get("type", "Inconnue")
+                severity = vuln.get("severity", "Inconnue")
+                print(f"\n{i}. Type: {vuln_type} (Sévérité: {severity})")
+                
+                if "evidence" in vuln:
+                    print(f"   Evidence: {vuln['evidence']}")
+                
+                if "impact" in vuln:
+                    print(f"   Impact: {vuln['impact']}")
+                
+                if "remediation" in vuln:
+                    print(f"   Remédiation: {vuln['remediation']}")
+        else:
+            print("\n[+] Analyse IA avec LLaMA terminée. Aucune vulnérabilité potentielle détectée.")
+        
+        return vulnerabilities
     
-    if model_path is None:
-        return {
-            "success": False,
-            "error": "Impossible de télécharger ou de trouver le modèle LLaMA",
-            "vulnerabilities": [],
-            "recommendations": ["Vérifier la connexion internet", "Vérifier l'espace disque disponible"]
-        }
+    except Exception as e:
+        logger.error(f"Erreur lors de l'analyse: {e}")
+        print(f"Erreur: {e}")
+        return []
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python llm_integration.py <url>")
+        sys.exit(1)
     
-    model = load_llama_model(model_path)
-    return analyze_with_llama(model, url, html_content, headers, forms_data)
+    url = sys.argv[1]
+    run(url)
