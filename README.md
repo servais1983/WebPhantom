@@ -36,16 +36,6 @@
 
 ## ⚙️ Installation
 
-### Prérequis système (important pour Kali Linux)
-
-Avant d'installer les dépendances Python, vous devez installer certaines dépendances système nécessaires à la compilation :
-
-```bash
-# Installer les dépendances système requises
-sudo apt-get update
-sudo apt-get install -y cmake pkg-config build-essential
-```
-
 ### Installation avec environnement virtuel (recommandé pour Kali Linux)
 
 En raison de la politique de gestion des paquets Python sur Kali Linux (PEP 668), il est recommandé d'utiliser un environnement virtuel :
@@ -64,7 +54,10 @@ python3 -m venv webphantom_env
 # Activer l'environnement virtuel
 source webphantom_env/bin/activate
 
-# Installer les dépendances
+# Installer d'abord les dépendances de base
+pip install requests beautifulsoup4 nltk
+
+# Puis installer toutes les dépendances
 pip install -r requirements.txt
 ```
 
@@ -89,6 +82,7 @@ pip install -r requirements.txt --break-system-packages
 
 - Python 3.8+
 - llama-cpp-python (pour l'analyse IA)
+- nltk (pour le traitement du langage naturel)
 - weasyprint (pour la génération de PDF)
 - pyjwt et bcrypt (pour l'authentification)
 - requests et beautifulsoup4 (pour la reconnaissance web)
@@ -105,7 +99,7 @@ pip install -r requirements.txt --break-system-packages
 | `report` | Génération de rapport HTML/PDF | `source webphantom_env/bin/activate && python webphantom.py report results.json --format pdf --output rapport.pdf` |
 | `payload` | Génération de charges utiles personnalisées | `source webphantom_env/bin/activate && python webphantom.py payload xss --transform url` |
 | `auth` | Gestion des utilisateurs et authentification | `source webphantom_env/bin/activate && python webphantom.py auth register --username pentester --email pentester@example.com --role admin` |
-| `run` | Scénario YAML (pentest-as-code) | `source webphantom_env/bin/activate && python webphantom.py run scripts/advanced_web_test.yaml` |
+| `run` | Scénario YAML (pentest-as-code) | `source webphantom_env/bin/activate && python webphantom.py run scripts/advanced_web_test.yaml --target http://testphp.vulnweb.com` |
 
 ## 🚀 Exemple d'utilisation
 
@@ -245,6 +239,8 @@ webphantom/
 ├── tests.py                 # Tests unitaires
 ├── webphantom.py            # Point d'entrée principal
 ├── requirements.txt         # Dépendances Python
+├── requirements_minimal.txt # Dépendances minimales
+├── TROUBLESHOOTING.md       # Guide de dépannage
 ├── install.sh               # Script d'installation
 └── README.md                # Documentation
 ```
@@ -256,6 +252,7 @@ webphantom/
 Le module `llm_integration.py` permet d'utiliser le modèle LLaMA pour analyser les applications web et identifier des vulnérabilités complexes :
 
 - Téléchargement et vérification automatique des modèles
+- Prétraitement du texte avec NLTK pour une analyse optimisée
 - Analyse contextuelle du code source et des réponses HTTP
 - Identification de patterns de vulnérabilités non détectables par des scanners traditionnels
 - Suggestions d'exploitation et recommandations de correction
