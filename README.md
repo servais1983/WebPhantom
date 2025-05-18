@@ -25,6 +25,7 @@ WebPhantom est un outil de pentest web automatisé conçu pour la reconnaissance
 
 - Python 3.8+
 - pip3
+- Au moins 5 GB d'espace disque libre pour les modèles LLaMA
 
 ### Installation sur Kali Linux
 
@@ -43,11 +44,26 @@ cd WebPhantom
 python3 -m venv webphantom_env
 source webphantom_env/bin/activate
 
-# 4. Installer d'abord les dépendances de base
-pip install requests beautifulsoup4 nltk pyjwt bcrypt
+# 4. Installer d'abord les dépendances critiques une par une
+# IMPORTANT : Cette étape est cruciale pour éviter les erreurs d'importation
+pip install requests
+pip install beautifulsoup4
+pip install nltk
+pip install pyjwt
+pip install bcrypt
 
-# 5. Installer toutes les dépendances
+# 5. Installer toutes les dépendances restantes
 pip install -r requirements.txt
+```
+
+### Installation sans environnement virtuel (non recommandé)
+
+Si vous ne souhaitez pas utiliser d'environnement virtuel sur Kali Linux :
+
+```bash
+# Utiliser l'option --break-system-packages pour contourner la politique PEP 668
+pip install nltk requests beautifulsoup4 pyjwt bcrypt --break-system-packages
+pip install -r requirements.txt --break-system-packages
 ```
 
 ### Gestion de l'espace disque
@@ -55,9 +71,35 @@ pip install -r requirements.txt
 **Important** : WebPhantom utilise des modèles LLM qui peuvent être volumineux. Assurez-vous d'avoir au moins 5 GB d'espace disque libre pour télécharger et utiliser les modèles LLaMA.
 
 Si vous rencontrez des erreurs "No space left on device" :
-1. Libérez de l'espace disque sur votre système
-2. Utilisez l'option `--no-ai` pour désactiver l'analyse IA (à venir)
-3. Utilisez un modèle plus léger via l'option `model` dans les scénarios YAML
+
+1. **Vérifiez votre espace disque disponible** :
+   ```bash
+   df -h
+   ```
+
+2. **Libérez de l'espace** :
+   ```bash
+   sudo apt-get clean
+   sudo apt-get autoremove -y
+   sudo journalctl --vacuum-time=1d
+   ```
+
+3. **Utilisez un modèle plus léger** dans votre fichier YAML :
+   ```yaml
+   - type: ai
+     options:
+       model: llama-3b-q4  # Modèle plus léger
+   ```
+
+4. **Redimensionnez votre partition** si vous utilisez une VM :
+   - Si votre disque virtuel est plus grand que votre partition (vérifiez avec `sudo fdisk -l`), utilisez GParted pour étendre la partition.
+
+5. **Utilisez un répertoire alternatif** pour les modèles :
+   ```bash
+   # Créer un lien symbolique vers un disque externe ou un répertoire avec plus d'espace
+   mkdir -p /chemin/avec/espace/webphantom_models
+   ln -sf /chemin/avec/espace/webphantom_models ~/.webphantom/models
+   ```
 
 ## Utilisation
 
@@ -182,9 +224,37 @@ Le module `payload_generator.py` permet de créer et gérer des charges utiles p
 - Obfuscation pour contourner les protections
 - Organisation par catégories et ensembles
 
-## Dépannage
+## Résolution des problèmes courants
 
-Si vous rencontrez des problèmes lors de l'installation ou de l'utilisation de WebPhantom, consultez le fichier [TROUBLESHOOTING.md](TROUBLESHOOTING.md) pour des solutions aux problèmes courants.
+### Erreur "ModuleNotFoundError: No module named 'nltk'"
+
+Si vous rencontrez cette erreur, c'est que NLTK n'est pas installé :
+
+```bash
+# Dans l'environnement virtuel
+pip install nltk
+
+# Sans environnement virtuel sur Kali Linux
+pip install nltk --break-system-packages
+```
+
+### Erreur "No space left on device" lors du téléchargement des modèles
+
+Cette erreur indique que vous n'avez pas assez d'espace disque :
+
+1. Vérifiez l'espace disponible : `df -h`
+2. Libérez de l'espace : `sudo apt-get clean && sudo apt-get autoremove -y`
+3. Utilisez un modèle plus léger dans votre fichier YAML
+4. Redimensionnez votre partition si vous utilisez une VM
+
+### Erreur "externally-managed-environment" sur Kali Linux
+
+Cette erreur est due à la politique PEP 668 de Kali Linux :
+
+1. Utilisez un environnement virtuel (recommandé)
+2. Ou utilisez l'option `--break-system-packages` avec pip
+
+Pour plus de détails sur la résolution des problèmes, consultez le fichier [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## Licence
 
