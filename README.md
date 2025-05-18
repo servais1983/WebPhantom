@@ -31,6 +31,9 @@
 - 🔐 **Gestion complète des utilisateurs et authentification** (Basic, Forms, JWT)
 - 💣 **Création de charges utiles personnalisées** pour différents types d'attaques
 - 📜 **Scénarios YAML** pour orchestrer des tests complets
+- 🔍 **Fuzzing d'API et de paramètres** pour découvrir des vulnérabilités cachées
+- 🔒 **Analyse SSL/TLS** pour vérifier la sécurité des connexions
+- 🔨 **Tests de résistance DoS** pour évaluer la robustesse des applications
 - 🚀 **Extensible** par l'ajout de nouveaux modules et payloads
 - 🔄 **Rapide et léger**, parfait pour les pentests rapides
 
@@ -208,8 +211,11 @@ Cette commande permet de gérer les utilisateurs avec :
 source webphantom_env/bin/activate
 
 # Exécuter le scénario avancé sur une cible spécifique
-# Note: Vous pouvez modifier la cible dans le fichier YAML ou la spécifier en ligne de commande
+# Note: Vous pouvez spécifier la cible de trois façons différentes
 python webphantom.py run scripts/advanced_web_test.yaml --target http://testphp.vulnweb.com
+# OU
+python webphantom.py run scripts/advanced_web_test.yaml http://testphp.vulnweb.com
+# OU définir la cible dans le fichier YAML lui-même
 ```
 
 Cette commande exécutera un scénario complet qui :
@@ -217,6 +223,68 @@ Cette commande exécutera un scénario complet qui :
 2. Teste les vulnérabilités avancées
 3. Réalise une analyse avec LLaMA
 4. Génère un rapport détaillé
+
+## 📜 Scénarios YAML avancés
+
+WebPhantom prend en charge des scénarios YAML avancés pour automatiser des tests de pénétration complets. Voici un exemple de scénario avancé :
+
+```yaml
+target: https://example.com
+steps:
+  - type: recon
+  - type: fingerprint
+    options:
+      detailed: true
+  - type: scan
+  - type: wait
+    options:
+      seconds: 2
+  - type: advanced-scan
+    options:
+      scan_csrf: true
+      scan_ssrf: true
+      scan_xxe: true
+  - type: fuzz
+    options:
+      type: api
+      wordlist: common
+  - type: ssl-scan
+  - type: brute-force
+    options:
+      target: login
+      wordlist: common
+  - type: ai
+    options:
+      model: llama-7b-q4
+  - type: report
+    options:
+      format: pdf
+```
+
+### Types d'étapes supportées
+
+| Type d'étape | Description | Options |
+|--------------|-------------|---------|
+| `recon` | Reconnaissance de base | - |
+| `scan` | Scan de vulnérabilités basiques | - |
+| `advanced-scan` | Scan de vulnérabilités avancées | `scan_csrf`, `scan_ssrf`, `scan_xxe`, `scan_idor` |
+| `ai` / `ai_analysis` | Analyse IA avec LLaMA | `model` |
+| `auth` | Gestion de l'authentification | `type`, `username`, `password`, `email`, `role` |
+| `payload` | Génération de charges utiles | `type`, `transform`, `output` |
+| `report` | Génération de rapports | `format`, `output` |
+| `fuzz` | Fuzzing d'API et de paramètres | `type` (`parameter` ou `api`), `wordlist` |
+| `fingerprint` | Fingerprinting avancé | `detailed` |
+| `brute-force` | Attaque par force brute | `target`, `wordlist` |
+| `ssl-scan` | Analyse SSL/TLS | - |
+| `dos-test` | Test de résistance aux attaques DoS | - |
+| `wait` | Attente entre les étapes | `seconds` |
+
+### Sauvegarde des résultats
+
+Les résultats de chaque scénario sont automatiquement sauvegardés dans un dossier horodaté (`results_YYYYMMDD_HHMMSS/`) contenant :
+- Un fichier JSON avec tous les résultats (`results.json`)
+- Les rapports générés au format spécifié
+- Les charges utiles personnalisées créées
 
 ## 🗂️ Structure du projet
 
@@ -230,7 +298,7 @@ webphantom/
 │   ├── report_generator.py  # Générateur de rapports HTML/PDF
 │   ├── auth.py              # Gestion des utilisateurs et authentification
 │   ├── payload_generator.py # Générateur de charges utiles personnalisées
-│   └── utils.py             # Fonctions utilitaires
+│   └── utils.py             # Fonctions utilitaires et moteur de scénario
 ├── scripts/                 # Scénarios prédéfinis
 │   ├── basic_web_test.yaml
 │   └── advanced_web_test.yaml
@@ -298,6 +366,16 @@ Le module `payload_generator.py` permet de créer et gérer des charges utiles p
 - Transformation des charges utiles (encodage URL, HTML, Base64, etc.)
 - Obfuscation pour contourner les protections
 - Organisation par catégories et ensembles
+
+### 🔍 Moteur de scénario YAML
+
+Le module `utils.py` contient un moteur de scénario avancé qui :
+
+- Exécute des scénarios de test complets à partir de fichiers YAML
+- Prend en charge de nombreux types d'étapes (recon, scan, ai, auth, etc.)
+- Permet de spécifier des options pour chaque étape
+- Sauvegarde automatiquement les résultats dans un dossier horodaté
+- Génère un fichier JSON avec tous les résultats
 
 ## 🔒 Sécurité et Éthique
 
