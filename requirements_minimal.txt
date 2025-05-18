@@ -1,0 +1,14 @@
+requests>=2.28.0
+beautifulsoup4>=4.11.1
+pyjwt>=2.4.0
+bcrypt>=4.0.1
+weasyprint>=57.0
+pycryptodome>=3.15.0
+llama-cpp-python>=0.3.0
+# sentencepiece est exclu de cette version minimale en raison de problèmes de compilation
+# sentencepiece>=0.1.97
+PyYAML>=6.0
+Jinja2>=3.1.2
+Markdown>=3.4.1
+tqdm>=4.64.1
+colorama>=0.4.5
