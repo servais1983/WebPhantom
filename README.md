@@ -36,6 +36,40 @@
 
 ## ⚙️ Installation
 
+### Prérequis système (important pour Kali Linux)
+
+Avant d'installer les dépendances Python, vous devez installer certaines dépendances système nécessaires à la compilation :
+
+```bash
+# Installer les dépendances système requises
+sudo apt-get update
+sudo apt-get install -y cmake pkg-config build-essential
+```
+
+### Installation avec environnement virtuel (recommandé pour Kali Linux)
+
+En raison de la politique de gestion des paquets Python sur Kali Linux (PEP 668), il est recommandé d'utiliser un environnement virtuel :
+
+```bash
+# Cloner le dépôt
+git clone https://github.com/servais1983/WebPhantom.git
+cd WebPhantom
+
+# Installer python3-venv si ce n'est pas déjà fait
+sudo apt install python3-venv
+
+# Créer un environnement virtuel
+python3 -m venv webphantom_env
+
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Installer les dépendances
+pip install -r requirements.txt
+```
+
+### Installation manuelle (alternative, non recommandée sur Kali)
+
 ```bash
 # Cloner le dépôt
 git clone https://github.com/servais1983/WebPhantom.git
@@ -47,11 +81,9 @@ chmod +x install.sh
 # Lancer l'installation
 ./install.sh
 
-# Installation manuelle des dépendances (alternative)
-pip install -r requirements.txt
+# Installation manuelle des dépendances (sur Kali, utilisez --break-system-packages avec précaution)
+pip install -r requirements.txt --break-system-packages
 ```
-
-L'installation met en place les dépendances nécessaires et prépare l'environnement d'exécution sur Kali Linux.
 
 ### 📦 Dépendances principales
 
@@ -64,23 +96,27 @@ L'installation met en place les dépendances nécessaires et prépare l'environn
 
 ## 🛠️ Commandes
 
-| Commande | Description | Exemple |
-|----------|-------------|---------|
-| `recon` | Analyse de surface (HTML, forms, scripts, headers) | `python3 webphantom.py recon http://site.test` |
-| `scan` | Test de vulnérabilités simples (XSS, SQLi, LFI) | `python3 webphantom.py scan http://site.test` |
-| `advanced-scan` | Scan avancé (CSRF, SSRF, XXE, etc.) | `python3 webphantom.py advanced-scan http://site.test` |
-| `ai` | Analyse IA avec LLaMA | `python3 webphantom.py ai http://site.test` |
-| `report` | Génération de rapport HTML/PDF | `python3 webphantom.py report results.json --format pdf` |
-| `payload` | Génération de charges utiles personnalisées | `python3 webphantom.py payload xss --transform url` |
-| `auth` | Gestion des utilisateurs et authentification | `python3 webphantom.py auth register --username admin` |
-| `run` | Scénario YAML (pentest-as-code) | `python3 webphantom.py run scripts/basic_web_test.yaml` |
+| Commande | Description | Exemple avec environnement virtuel |
+|----------|-------------|-----------------------------------|
+| `recon` | Analyse de surface (HTML, forms, scripts, headers) | `source webphantom_env/bin/activate && python webphantom.py recon http://testphp.vulnweb.com` |
+| `scan` | Test de vulnérabilités simples (XSS, SQLi, LFI) | `source webphantom_env/bin/activate && python webphantom.py scan http://testphp.vulnweb.com` |
+| `advanced-scan` | Scan avancé (CSRF, SSRF, XXE, etc.) | `source webphantom_env/bin/activate && python webphantom.py advanced-scan http://testphp.vulnweb.com` |
+| `ai` | Analyse IA avec LLaMA | `source webphantom_env/bin/activate && python webphantom.py ai http://testphp.vulnweb.com` |
+| `report` | Génération de rapport HTML/PDF | `source webphantom_env/bin/activate && python webphantom.py report results.json --format pdf --output rapport.pdf` |
+| `payload` | Génération de charges utiles personnalisées | `source webphantom_env/bin/activate && python webphantom.py payload xss --transform url` |
+| `auth` | Gestion des utilisateurs et authentification | `source webphantom_env/bin/activate && python webphantom.py auth register --username pentester --email pentester@example.com --role admin` |
+| `run` | Scénario YAML (pentest-as-code) | `source webphantom_env/bin/activate && python webphantom.py run scripts/advanced_web_test.yaml` |
 
 ## 🚀 Exemple d'utilisation
 
 ### Reconnaissance d'un site web
 
 ```bash
-python3 webphantom.py recon http://testphp.vulnweb.com
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Lancer la reconnaissance sur une cible spécifique
+python webphantom.py recon http://testphp.vulnweb.com
 ```
 
 Cette commande analysera le site web et affichera des informations sur :
@@ -92,7 +128,11 @@ Cette commande analysera le site web et affichera des informations sur :
 ### Scan avancé de vulnérabilités
 
 ```bash
-python3 webphantom.py advanced-scan http://testphp.vulnweb.com
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Lancer le scan avancé sur une cible spécifique
+python webphantom.py advanced-scan http://testphp.vulnweb.com
 ```
 
 Cette commande effectuera un scan approfondi pour détecter :
@@ -105,7 +145,11 @@ Cette commande effectuera un scan approfondi pour détecter :
 ### Analyse avec IA (LLaMA)
 
 ```bash
-python3 webphantom.py ai http://testphp.vulnweb.com
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Lancer l'analyse IA sur une cible spécifique
+python webphantom.py ai http://testphp.vulnweb.com
 ```
 
 Cette commande utilise le modèle LLaMA pour :
@@ -117,7 +161,11 @@ Cette commande utilise le modèle LLaMA pour :
 ### Génération de rapport
 
 ```bash
-python3 webphantom.py report scan_results.json --format pdf --output rapport_pentest.pdf
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Générer un rapport PDF à partir des résultats de scan
+python webphantom.py report scan_results.json --format pdf --output rapport_pentest.pdf
 ```
 
 Cette commande génère un rapport détaillé avec :
@@ -129,7 +177,11 @@ Cette commande génère un rapport détaillé avec :
 ### Création de charges utiles personnalisées
 
 ```bash
-python3 webphantom.py payload xss --create --name "XSS avancé" --output custom_xss.json
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Créer un ensemble de charges utiles XSS personnalisées
+python webphantom.py payload xss --create --name "XSS avancé" --output custom_xss.json
 ```
 
 Cette commande permet de créer et gérer des charges utiles pour :
@@ -142,7 +194,11 @@ Cette commande permet de créer et gérer des charges utiles pour :
 ### Gestion des utilisateurs
 
 ```bash
-python3 webphantom.py auth register --username pentester --email pentester@example.com --role admin
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Créer un nouvel utilisateur avec le rôle admin
+python webphantom.py auth register --username pentester --email pentester@example.com --role admin
 ```
 
 Cette commande permet de gérer les utilisateurs avec :
@@ -154,7 +210,12 @@ Cette commande permet de gérer les utilisateurs avec :
 ### Exécution d'un scénario complet
 
 ```bash
-python3 webphantom.py run scripts/advanced_web_test.yaml
+# Activer l'environnement virtuel
+source webphantom_env/bin/activate
+
+# Exécuter le scénario avancé sur une cible spécifique
+# Note: Vous pouvez modifier la cible dans le fichier YAML ou la spécifier en ligne de commande
+python webphantom.py run scripts/advanced_web_test.yaml --target http://testphp.vulnweb.com
 ```
 
 Cette commande exécutera un scénario complet qui :
