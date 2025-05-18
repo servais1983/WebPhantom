@@ -1,22 +1,22 @@
 ![image](https://github.com/user-attachments/files/14627644/WebPhantom.png)
 
-# WebPhantom
+# WebPhantom 🕸️ 🔍
 
 WebPhantom est un outil de pentest web automatisé conçu pour la reconnaissance, l'analyse de vulnérabilités et la génération de rapports de sécurité.
 
 ## Fonctionnalités principales
 
-- **Reconnaissance** : Collecte d'informations sur les applications web cibles
-- **Scan de vulnérabilités** : Détection automatique des vulnérabilités web courantes
-- **Scan avancé** : Détection de CSRF, SSRF, XXE, IDOR et autres vulnérabilités complexes
-- **Analyse IA avec LLaMA** : Utilisation de modèles LLM locaux pour l'analyse contextuelle
-- **Génération de rapports** : Création de rapports détaillés en formats HTML et PDF
-- **Authentification** : Support pour Basic Auth, Forms et JWT avec gestion des utilisateurs
-- **Charges utiles personnalisées** : Bibliothèque de payloads et transformations
-- **Moteur de scénario YAML** : Automatisation des tests avec des scénarios personnalisables
-- **Fuzzing** : Découverte de paramètres et endpoints vulnérables
-- **Fingerprinting** : Identification précise des technologies utilisées
-- **Tests SSL/TLS** : Analyse des configurations de sécurité
+- 🔍 **Reconnaissance** : Collecte d'informations sur les applications web cibles
+- 🛡️ **Scan de vulnérabilités** : Détection automatique des vulnérabilités web courantes
+- 🔬 **Scan avancé** : Détection de CSRF, SSRF, XXE, IDOR et autres vulnérabilités complexes
+- 🧠 **Analyse IA avec LLaMA** : Utilisation de modèles LLM locaux pour l'analyse contextuelle
+- 📊 **Génération de rapports** : Création de rapports détaillés en formats HTML et PDF
+- 🔐 **Authentification** : Support pour Basic Auth, Forms et JWT avec gestion des utilisateurs
+- 💣 **Charges utiles personnalisées** : Bibliothèque de payloads et transformations
+- 📜 **Moteur de scénario YAML** : Automatisation des tests avec des scénarios personnalisables
+- 🔮 **Fuzzing** : Découverte de paramètres et endpoints vulnérables
+- 👁️ **Fingerprinting** : Identification précise des technologies utilisées
+- 🔒 **Tests SSL/TLS** : Analyse des configurations de sécurité
 
 ## Installation
 
@@ -141,14 +141,14 @@ python webphantom.py run scripts/advanced_web_test.yaml
 
 ## Modules principaux
 
-### Analyse IA avec LLaMA
+### 🧠 Analyse IA avec LLaMA
 Le module `llm_integration.py` utilise NLTK et des modèles LLM locaux pour analyser les applications web :
 
 - Téléchargement et vérification automatique des modèles
 - Analyse contextuelle pour identifier des vulnérabilités complexes
 - Génération de recommandations de sécurité
 
-### Scan avancé de vulnérabilités
+### 🔬 Scan avancé de vulnérabilités
 Le module `advanced_vulns.py` permet de détecter des vulnérabilités avancées :
 
 - Cross-Site Request Forgery (CSRF)
@@ -157,7 +157,7 @@ Le module `advanced_vulns.py` permet de détecter des vulnérabilités avancées
 - Insecure Direct Object References (IDOR)
 - Server-Side Template Injection (SSTI)
 
-### Générateur de rapports
+### 📊 Générateur de rapports
 Le module `report_generator.py` crée des rapports détaillés et lisibles :
 
 - Formats HTML et PDF
@@ -165,14 +165,14 @@ Le module `report_generator.py` crée des rapports détaillés et lisibles :
 - Graphiques et tableaux de synthèse
 - Templates personnalisables
 
-### Authentification
+### 🔐 Authentification
 Le module `auth.py` gère l'authentification et les utilisateurs :
 
 - Basic Auth, Forms et JWT
 - Hachage sécurisé des mots de passe avec bcrypt
 - Gestion des rôles et permissions
 
-### Générateur de charges utiles
+### 💣 Générateur de charges utiles
 Le module `payload_generator.py` permet de créer et gérer des charges utiles personnalisées :
 
 - Bibliothèque de charges utiles prédéfinies pour différents types d'attaques
