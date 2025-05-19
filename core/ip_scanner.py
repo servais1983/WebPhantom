@@ -288,7 +288,7 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     try:
         # Tenter un ping simple pour vérifier si la cible est accessible
         ping_cmd = f"ping -c 1 -W 2 {target}"
-        ping_success, ping_output = run_command(ping_cmd, timeout=5, silent=True, show_output=False)
+        ping_success, ping_output = run_command(ping_cmd, timeout=5, silent=True)
         
         if ping_success:
             logger.info(f"Connectivité réseau vers {target} confirmée")
