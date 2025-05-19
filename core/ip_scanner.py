@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 SCAN_TOOLS = {
     'nmap': {
         'package': 'nmap',
-        'command': 'nmap -A -T4 -oX {output_file} {target}',
+        'command': 'nmap -sV -sC --script=vuln -p- -T4 -oX {output_file} {target}',
         'description': 'Scanner réseau avancé pour la découverte de services et la détection de versions',
         'parse_function': 'parse_nmap_output',
-        'timeout': 300,  # 5 minutes
+        'timeout': 600,  # 10 minutes
         'required_files': []
     },
     'nikto': {
