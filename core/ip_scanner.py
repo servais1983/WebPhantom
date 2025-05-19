@@ -276,7 +276,7 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
         logger.warning(f"Erreur lors du test de connectivité vers {target}: {e}")
     
     # Construire la commande finale
-    command = tool_info['command'].format(target=target, output_file=output_file, **required_files)
+    command = tool_info['command'].format(**cmd_params)
     
     # Exécuter la commande de pré-exécution si elle existe
     if 'pre_command' in tool_info and tool_info['pre_command']:
