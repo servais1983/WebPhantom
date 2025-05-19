@@ -203,3 +203,17 @@ def generate_ip_scan_report(results, output_file):
         f.write(html_content)
     
     logger.info(f"Rapport HTML généré avec succès: {output_file}")
+
+def run_all_tools(target, output_dir=None):
+    """
+    Exécute tous les outils de scan sur une cible
+    
+    Args:
+        target (str): Adresse IP ou plage d'adresses IP à scanner
+        output_dir (str, optional): Répertoire de sortie pour les résultats
+        
+    Returns:
+        dict: Résultats du scan
+    """
+    logger.info(f"Exécution de tous les outils de scan sur la cible: {target}")
+    return scan_ip(target, output_dir, tools=list(SCAN_TOOLS.keys()) + list(SPECIAL_TOOLS.keys()))
