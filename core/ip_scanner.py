@@ -40,7 +40,8 @@ SCAN_TOOLS = {
         'description': 'Vérification de la configuration SSL/TLS',
         'parse_function': 'parse_testssl_output',
         'timeout': 180,  # 3 minutes
-        'required_files': []
+        'required_files': [],
+        'setup_command': 'mkdir -p /usr/local/bin/etc/ && cp -r /usr/share/testssl.sh/etc/* /usr/local/bin/etc/ 2>/dev/null || true'
     },
     'snmp-check': {
         'package': 'snmp-check',
@@ -52,10 +53,10 @@ SCAN_TOOLS = {
     },
     'hydra': {
         'package': 'hydra',
-        'command': 'hydra -L {wordlist_users} -P {wordlist_passwords} -o {output_file} -f {target} ssh -t 4',
+        'command': 'hydra -L {wordlist_users} -P {wordlist_passwords} -o {output_file} -f {target} http-get / -t 2',
         'description': 'Outil de brute force pour les services réseau',
         'parse_function': 'parse_hydra_output',
-        'timeout': 180,  # 3 minutes
+        'timeout': 120,  # 2 minutes
         'required_files': [
             {'path': '/usr/share/wordlists/metasploit/common_users.txt', 'fallback': '/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt', 'param': 'wordlist_users'},
             {'path': '/usr/share/wordlists/metasploit/common_passwords.txt', 'fallback': '/usr/share/wordlists/seclists/Passwords/Common-Credentials/10-million-password-list-top-100.txt', 'param': 'wordlist_passwords'}
@@ -71,7 +72,7 @@ SCAN_TOOLS = {
     },
     'wpscan': {
         'package': 'wpscan',
-        'command': 'wpscan --url http://{target} --format json --output {output_file} --no-banner',
+        'command': 'wpscan --url http://{target} --format json --output {output_file} --no-banner --force --detection-mode aggressive',
         'description': 'Scanner de vulnérabilités WordPress',
         'parse_function': 'parse_wpscan_output',
         'timeout': 180,  # 3 minutes
@@ -89,7 +90,7 @@ SCAN_TOOLS = {
     },
     'gobuster': {
         'package': 'gobuster',
-        'command': 'gobuster dir -u http://{target} -w {wordlist} -o {output_file} -q',
+        'command': 'gobuster dir -u http://{target} -w {wordlist} -o {output_file} -q -s "200,204,301,302,307,401,403"',
         'description': 'Découverte de répertoires et fichiers web (alternative à dirb)',
         'parse_function': 'parse_gobuster_output',
         'timeout': 300,  # 5 minutes
@@ -111,12 +112,11 @@ SCAN_TOOLS = {
 SPECIAL_TOOLS = {
     'owasp-zap': {
         'package': 'zaproxy',
-        'command': 'zap-cli quick-scan --self-contained --start-options "-config api.disablekey=true" -o {output_file} {target}',
+        'command': 'python3 -m zapv2 --quick-scan -t {target} -o {output_file}',
         'description': 'Scanner de vulnérabilités web OWASP ZAP',
         'parse_function': 'parse_zap_output',
         'timeout': 300,  # 5 minutes
-        'required_files': [],
-        'alt_command': 'python3 -m zapv2 --quick-scan -t {target} -o {output_file}'
+        'required_files': []
     }
 }
 
