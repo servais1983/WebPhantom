@@ -99,33 +99,7 @@ SPECIAL_TOOLS = {
         'description': 'Scanner de vulnérabilités web OWASP ZAP',
         'parse_function': 'parse_zap_output'
     },
-    'w3af': {
-        'package': 'w3af',
-        'command': 'w3af_console -s {script_file}',
-        'script_template': '''
-target
-set target http://{target}
-back
-plugins
-output console, xml_file
-output config xml_file
-set output_file {output_file}
-back
-output config console
-set verbose False
-back
-crawl web_spider
-crawl config web_spider
-set only_forward True
-back
-audit sqli, xss, csrf, lfi
-back
-start
-exit
-''',
-        'description': 'Framework de scan de vulnérabilités web',
-        'parse_function': 'parse_w3af_output'
-    }
+
 }
 
 def is_valid_ip(ip):
@@ -178,14 +152,7 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     timestamp = int(time.time())
     output_file = os.path.join(output_dir, f"{tool_name}_{target.replace('/', '_')}_{timestamp}.xml")
     
-    # Cas spécial pour w3af qui nécessite un fichier de script
-    if tool_name == 'w3af':
-        script_file = os.path.join(output_dir, f"w3af_script_{target.replace('/', '_')}_{timestamp}.w3af")
-        with open(script_file, 'w') as f:
-            f.write(tool_info['script_template'].format(target=target, output_file=output_file))
-        command = tool_info['command'].format(script_file=script_file)
-    else:
-        command = tool_info['command'].format(target=target, output_file=output_file)
+    command = tool_info['command'].format(target=target, output_file=output_file)
     
     logger.info(f"Exécution de {tool_name} sur {target}...")
     success, output = run_command(command)
@@ -1030,43 +997,7 @@ def parse_zap_output(output_file):
         logger.error(f"Erreur lors de l'analyse des résultats d'OWASP ZAP: {e}")
         return None
 
-def parse_w3af_output(output_file):
-    """Analyse les résultats de w3af au format XML"""
-    try:
-        import xml.etree.ElementTree as ET
-        
-        tree = ET.parse(output_file)
-        root = tree.getroot()
-        
-        results = {'vulnerabilities': []}
-        
-        # Extraire les vulnérabilités
-        for vuln in root.findall('.//vulnerability'):
-            name_elem = vuln.find('name')
-            severity_elem = vuln.find('severity')
-            desc_elem = vuln.find('description')
-            
-            if name_elem is not None:
-                severity = 'info'
-                if severity_elem is not None:
-                    severity_text = severity_elem.text.lower()
-                    if severity_text == 'high':
-                        severity = 'high'
-                    elif severity_text == 'medium':
-                        severity = 'medium'
-                    elif severity_text == 'low':
-                        severity = 'low'
-                
-                results['vulnerabilities'].append({
-                    'name': name_elem.text,
-                    'severity': severity,
-                    'description': desc_elem.text if desc_elem is not None else 'N/A'
-                })
-        
-        return results
-    except Exception as e:
-        logger.error(f"Erreur lors de l'analyse des résultats de w3af: {e}")
-        return None
+
 
 def run_all_tools(target, output_dir=None):
     """

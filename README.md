@@ -19,7 +19,7 @@ WebPhantom est un outil de pentest web automatisé conçu pour la reconnaissance
 - 👁️ **Fingerprinting** : Identification précise des technologies utilisées
 - 🔒 **Tests SSL/TLS** : Analyse des configurations de sécurité
 - 🌐 **Scan IP complet** : Analyse de plages d'adresses IP avec multiples outils de sécurité
-- 🔄 **Intégration multi-outils** : Support pour Nmap, OpenVAS, Nikto, OWASP ZAP, w3af, TestSSL.sh, SNMP-check, Hydra, SSLyze, WPScan, Dirb/Dirbuster, Gobuster et Nuclei
+- 🔄 **Intégration multi-outils** : Support pour Nmap, OpenVAS, Nikto, OWASP ZAP, TestSSL.sh, SNMP-check, Hydra, SSLyze, WPScan, Dirb/Dirbuster, Gobuster et Nuclei
 - 🚀 **Commande unifiée** : Exécution de tous les outils en une seule commande
 
 ## Installation
@@ -296,7 +296,6 @@ WebPhantom intègre désormais les outils suivants pour le scan IP et l'analyse 
 | OpenVAS | Scanner de vulnérabilités complet |
 | Nikto | Scanner de vulnérabilités web |
 | OWASP ZAP | Proxy d'interception et scanner de vulnérabilités web |
-| w3af | Framework de scan de vulnérabilités web |
 | TestSSL.sh | Vérification de la configuration SSL/TLS |
 | SNMP-check | Vérification des configurations SNMP |
 | Hydra | Outil de brute force pour les services réseau |
