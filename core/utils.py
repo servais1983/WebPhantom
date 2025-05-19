@@ -8,6 +8,7 @@ import subprocess
 import logging
 import time
 import shutil
+import signal
 from datetime import datetime
 
 # Configuration du logging
@@ -33,6 +34,10 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False, show_o
         cmd_parts = command.split()
         main_cmd = cmd_parts[0]
         
+        # Si main_cmd est sudo, prendre la commande suivante
+        if main_cmd == "sudo" and len(cmd_parts) > 1:
+            main_cmd = cmd_parts[1]
+            
         # Vérifier si la commande existe avant de l'exécuter
         if not silent:
             logger.debug(f"Vérification de la disponibilité de la commande: {main_cmd}")
@@ -56,14 +61,56 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False, show_o
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # Rediriger stderr vers stdout pour un affichage unifié
                 universal_newlines=True,
-                bufsize=1  # Line buffered
+                bufsize=1,  # Line buffered
+                preexec_fn=os.setsid if hasattr(os, 'setsid') else None  # Pour pouvoir terminer tout le groupe de processus
             )
             
             # Capturer la sortie complète pour le retour
             full_output = []
             
-            # Lire et afficher la sortie ligne par ligne en temps réel
-            for line in iter(process.stdout.readline, ''):
+            # Timer pour le timeout
+            start_time = time.time()
+            
+            # Lire et afficher la sortie ligne par ligne en temps réel avec timeout
+            while process.poll() is None:
+                # Vérifier le timeout
+                if timeout and time.time() - start_time > timeout:
+                    # Terminer le processus et tout son groupe
+                    if hasattr(os, 'killpg'):
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        # Attendre un peu et forcer la fermeture si nécessaire
+                        time.sleep(0.5)
+                        if process.poll() is None:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    else:
+                        process.terminate()
+                        # Attendre un peu et forcer la fermeture si nécessaire
+                        time.sleep(0.5)
+                        if process.poll() is None:
+                            process.kill()
+                    
+                    process.wait()
+                    if show_output:
+                        print(f"\n{'='*80}\n[TIMEOUT] La commande a dépassé le délai d'attente ({timeout}s)\n{'='*80}")
+                    return False, "Timeout expiré"
+                
+                # Lire la sortie
+                try:
+                    line = process.stdout.readline()
+                    if not line:
+                        time.sleep(0.1)
+                        continue
+                    
+                    print(f"[SORTIE] {line.rstrip()}")
+                    full_output.append(line)
+                except (IOError, UnicodeDecodeError) as e:
+                    # Ignorer les erreurs de lecture
+                    if not silent:
+                        logger.debug(f"Erreur de lecture de la sortie: {e}")
+                    time.sleep(0.1)
+            
+            # Lire les dernières lignes
+            for line in process.stdout:
                 print(f"[SORTIE] {line.rstrip()}")
                 full_output.append(line)
             
@@ -81,12 +128,31 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False, show_o
                 shell=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                universal_newlines=True
+                universal_newlines=True,
+                preexec_fn=os.setsid if hasattr(os, 'setsid') else None
             )
             
-            stdout, stderr = process.communicate(timeout=timeout)
-            success = process.returncode == 0 or ignore_errors
-            output = stdout if success else stderr
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+                success = process.returncode == 0 or ignore_errors
+                output = stdout if success else stderr
+            except subprocess.TimeoutExpired:
+                # Terminer le processus et tout son groupe
+                if hasattr(os, 'killpg'):
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                    time.sleep(0.5)
+                    if process.poll() is None:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                else:
+                    process.terminate()
+                    time.sleep(0.5)
+                    if process.poll() is None:
+                        process.kill()
+                
+                process.wait()
+                if not silent:
+                    logger.debug(f"Timeout expiré pour la commande: {command}")
+                return False, "Timeout expiré"
         
         if not success and not silent:
             logger.debug(f"Commande échouée (code {process.returncode}): {command}")
@@ -94,13 +160,6 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False, show_o
                 logger.debug(f"Message d'erreur: {stderr.strip()}")
         
         return success, output
-    except subprocess.TimeoutExpired:
-        process.kill()
-        if not silent:
-            logger.debug(f"Timeout expiré pour la commande: {command}")
-        if show_output:
-            print(f"\n{'='*80}\n[TIMEOUT] La commande a dépassé le délai d'attente\n{'='*80}")
-        return False, "Timeout expiré"
     except Exception as e:
         if not silent:
             logger.debug(f"Erreur lors de l'exécution de la commande {command}: {e}")
@@ -136,24 +195,24 @@ def ensure_tool_installed(package_name):
     if has_sudo:
         # Essayer d'abord avec apt
         install_command = f"apt-get update -qq && apt-get install -y -qq {package_name}"
-        success, output = run_command(f"sudo {install_command}", silent=False, show_output=True)
+        success, output = run_command(f"sudo {install_command}", silent=False, show_output=True, timeout=180)
         
         # Si apt échoue, essayer avec pip pour les outils Python
         if not success and (package_name.startswith('python') or package_name in ['sslyze', 'wpscan', 'nuclei']):
             logger.info(f"Tentative d'installation via pip pour {package_name}...")
             pip_command = f"pip install {package_name}"
-            success, output = run_command(f"sudo {pip_command}", silent=False, show_output=True)
+            success, output = run_command(f"sudo {pip_command}", silent=False, show_output=True, timeout=120)
     else:
         # Essayer sans sudo (moins de chances de succès)
         logger.warning(f"Droits sudo non disponibles pour installer {package_name}. Tentative sans sudo...")
         install_command = f"apt-get update -qq && apt-get install -y -qq {package_name}"
-        success, output = run_command(install_command, silent=False, show_output=True)
+        success, output = run_command(install_command, silent=False, show_output=True, timeout=180)
         
         # Essayer avec pip local si apt échoue
         if not success and (package_name.startswith('python') or package_name in ['sslyze', 'wpscan', 'nuclei']):
             logger.info(f"Tentative d'installation via pip local pour {package_name}...")
             pip_command = f"pip install --user {package_name}"
-            success, output = run_command(pip_command, silent=False, show_output=True)
+            success, output = run_command(pip_command, silent=False, show_output=True, timeout=120)
     
     # Vérifier si l'installation a réussi
     if shutil.which(tool_name) is not None:
@@ -219,10 +278,10 @@ def run_script_yaml(script_file, target_url=None):
                 vulns.run(target)
             elif step_type == 'advanced-scan':
                 from core import advanced_vulns
-                advanced_vulns.run(target, **options)
+                advanced_vulns.run(target, options)
             elif step_type == 'ai':
                 from core import ai_analyzer
-                ai_analyzer.run(target, **options)
+                ai_analyzer.run(target, options)
             elif step_type == 'wait':
                 seconds = options.get('seconds', 1)
                 logger.info(f"Attente de {seconds} secondes...")
