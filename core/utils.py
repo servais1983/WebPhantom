@@ -14,18 +14,35 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def run_command(command, timeout=None):
+def run_command(command, timeout=None, silent=False, ignore_errors=False):
     """
     Exécute une commande shell et retourne le résultat
     
     Args:
         command (str): Commande à exécuter
         timeout (int, optional): Timeout en secondes
+        silent (bool, optional): Si True, ne pas logger les erreurs non critiques
+        ignore_errors (bool, optional): Si True, considérer la commande comme réussie même en cas d'erreur
         
     Returns:
         tuple: (success, output)
     """
     try:
+        # Vérifier si la commande principale existe
+        cmd_parts = command.split()
+        main_cmd = cmd_parts[0]
+        
+        # Vérifier si la commande existe avant de l'exécuter
+        if not silent:
+            logger.debug(f"Vérification de la disponibilité de la commande: {main_cmd}")
+        
+        cmd_exists = shutil.which(main_cmd) is not None
+        if not cmd_exists:
+            if not silent:
+                logger.warning(f"Commande non trouvée: {main_cmd}")
+            return False, f"Commande non trouvée: {main_cmd}"
+        
+        # Exécuter la commande
         process = subprocess.Popen(
             command,
             shell=True,
@@ -35,19 +52,22 @@ def run_command(command, timeout=None):
         )
         
         stdout, stderr = process.communicate(timeout=timeout)
-        success = process.returncode == 0
+        success = process.returncode == 0 or ignore_errors
         
-        if not success:
-            logger.warning(f"Commande échouée: {command}")
-            logger.warning(f"Erreur: {stderr}")
+        if not success and not silent:
+            logger.debug(f"Commande échouée (code {process.returncode}): {command}")
+            if stderr.strip():
+                logger.debug(f"Message d'erreur: {stderr.strip()}")
         
         return success, stdout if success else stderr
     except subprocess.TimeoutExpired:
         process.kill()
-        logger.warning(f"Timeout expiré pour la commande: {command}")
+        if not silent:
+            logger.debug(f"Timeout expiré pour la commande: {command}")
         return False, "Timeout expiré"
     except Exception as e:
-        logger.error(f"Erreur lors de l'exécution de la commande {command}: {e}")
+        if not silent:
+            logger.debug(f"Erreur lors de l'exécution de la commande {command}: {e}")
         return False, str(e)
 
 def ensure_tool_installed(package_name):
@@ -60,27 +80,35 @@ def ensure_tool_installed(package_name):
     Returns:
         bool: True si l'installation a réussi ou si l'outil est déjà installé
     """
-    logger.info(f"Vérification de l'installation de {package_name}...")
-    
     # Vérifier si l'outil est déjà installé
-    check_command = f"which {package_name.split()[0]}"
-    success, _ = run_command(check_command)
-    
-    if success:
-        logger.info(f"{package_name} est déjà installé.")
+    tool_name = package_name.split()[0]
+    if shutil.which(tool_name) is not None:
+        logger.debug(f"{package_name} est déjà installé.")
         return True
     
-    # Installer l'outil
     logger.info(f"Installation de {package_name}...")
-    install_command = f"apt-get update && apt-get install -y {package_name}"
-    success, output = run_command(f"sudo {install_command}")
     
-    if success:
-        logger.info(f"{package_name} a été installé avec succès.")
+    # Vérifier si nous avons les droits sudo
+    has_sudo = False
+    sudo_check, _ = run_command("sudo -n true", silent=True)
+    if sudo_check:
+        has_sudo = True
+    
+    # Installer l'outil
+    if has_sudo:
+        install_command = f"apt-get update -qq && apt-get install -y -qq {package_name}"
+        success, output = run_command(f"sudo {install_command}", silent=True)
     else:
-        logger.error(f"Échec de l'installation de {package_name}: {output}")
+        logger.warning(f"Droits sudo requis pour installer {package_name}. Veuillez l'installer manuellement.")
+        return False
     
-    return success
+    # Vérifier si l'installation a réussi
+    if shutil.which(tool_name) is not None:
+        logger.info(f"{package_name} a été installé avec succès.")
+        return True
+    else:
+        logger.debug(f"Échec de l'installation de {package_name}: {output}")
+        return False
 
 def create_output_dir(prefix='output'):
     """

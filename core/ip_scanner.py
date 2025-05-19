@@ -25,61 +25,88 @@ SCAN_TOOLS = {
         'package': 'nmap',
         'command': 'nmap -A -T4 -oX {output_file} {target}',
         'description': 'Scanner réseau avancé pour la découverte de services et la détection de versions',
-        'parse_function': 'parse_nmap_output'
+        'parse_function': 'parse_nmap_output',
+        'timeout': 300,  # 5 minutes
+        'required_files': []
     },
     'nikto': {
         'package': 'nikto',
-        'command': 'nikto -h {target} -output {output_file} -Format xml',
+        'command': 'nikto -h {target} -output {output_file} -Format xml -timeout 60',
         'description': 'Scanner de vulnérabilités web',
-        'parse_function': 'parse_nikto_output'
+        'parse_function': 'parse_nikto_output',
+        'timeout': 300,  # 5 minutes
+        'required_files': []
     },
     'testssl': {
         'package': 'testssl.sh',
-        'command': 'testssl --quiet --warnings off --openssl-timeout 10 --html {output_file} {target}',
+        'command': 'testssl.sh --quiet --warnings off --openssl-timeout 10 --htmlfile {output_file} {target}',
         'description': 'Vérification de la configuration SSL/TLS',
-        'parse_function': 'parse_testssl_output'
+        'parse_function': 'parse_testssl_output',
+        'timeout': 180,  # 3 minutes
+        'required_files': []
     },
     'snmp-check': {
         'package': 'snmp-check',
         'command': 'snmp-check -w {output_file} {target}',
         'description': 'Vérification des configurations SNMP',
-        'parse_function': 'parse_snmpcheck_output'
+        'parse_function': 'parse_snmpcheck_output',
+        'timeout': 60,  # 1 minute
+        'required_files': []
     },
     'hydra': {
         'package': 'hydra',
-        'command': 'hydra -L /usr/share/wordlists/metasploit/common_users.txt -P /usr/share/wordlists/metasploit/common_passwords.txt -o {output_file} -f {target} ssh',
+        'command': 'hydra -L {wordlist_users} -P {wordlist_passwords} -o {output_file} -f {target} ssh -t 4',
         'description': 'Outil de brute force pour les services réseau',
-        'parse_function': 'parse_hydra_output'
+        'parse_function': 'parse_hydra_output',
+        'timeout': 180,  # 3 minutes
+        'required_files': [
+            {'path': '/usr/share/wordlists/metasploit/common_users.txt', 'fallback': '/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt', 'param': 'wordlist_users'},
+            {'path': '/usr/share/wordlists/metasploit/common_passwords.txt', 'fallback': '/usr/share/wordlists/seclists/Passwords/Common-Credentials/10-million-password-list-top-100.txt', 'param': 'wordlist_passwords'}
+        ]
     },
     'sslyze': {
         'package': 'sslyze',
-        'command': 'sslyze --json_out {output_file} {target}',
+        'command': 'sslyze --json_out {output_file} {target} 2>/dev/null',
         'description': 'Analyse avancée des configurations SSL/TLS',
-        'parse_function': 'parse_sslyze_output'
+        'parse_function': 'parse_sslyze_output',
+        'timeout': 120,  # 2 minutes
+        'required_files': []
     },
     'wpscan': {
         'package': 'wpscan',
-        'command': 'wpscan --url http://{target} --format json --output {output_file}',
+        'command': 'wpscan --url http://{target} --format json --output {output_file} --no-banner',
         'description': 'Scanner de vulnérabilités WordPress',
-        'parse_function': 'parse_wpscan_output'
+        'parse_function': 'parse_wpscan_output',
+        'timeout': 180,  # 3 minutes
+        'required_files': []
     },
     'dirb': {
         'package': 'dirb',
-        'command': 'dirb http://{target} /usr/share/dirb/wordlists/common.txt -o {output_file}',
+        'command': 'dirb http://{target} {wordlist} -o {output_file} -S',
         'description': 'Découverte de répertoires et fichiers web',
-        'parse_function': 'parse_dirb_output'
+        'parse_function': 'parse_dirb_output',
+        'timeout': 300,  # 5 minutes
+        'required_files': [
+            {'path': '/usr/share/dirb/wordlists/common.txt', 'fallback': '/usr/share/wordlists/dirb/common.txt', 'param': 'wordlist'}
+        ]
     },
     'gobuster': {
         'package': 'gobuster',
-        'command': 'gobuster dir -u http://{target} -w /usr/share/wordlists/dirb/common.txt -o {output_file}',
+        'command': 'gobuster dir -u http://{target} -w {wordlist} -o {output_file} -q',
         'description': 'Découverte de répertoires et fichiers web (alternative à dirb)',
-        'parse_function': 'parse_gobuster_output'
+        'parse_function': 'parse_gobuster_output',
+        'timeout': 300,  # 5 minutes
+        'required_files': [
+            {'path': '/usr/share/wordlists/dirb/common.txt', 'fallback': '/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt', 'param': 'wordlist'}
+        ]
     },
     'nuclei': {
         'package': 'nuclei',
-        'command': 'nuclei -u http://{target} -o {output_file}',
+        'command': 'nuclei -u http://{target} -o {output_file} -silent',
         'description': 'Scanner de vulnérabilités basé sur des templates',
-        'parse_function': 'parse_nuclei_output'
+        'parse_function': 'parse_nuclei_output',
+        'timeout': 300,  # 5 minutes
+        'required_files': []
     }
 }
 
@@ -87,19 +114,24 @@ SCAN_TOOLS = {
 SPECIAL_TOOLS = {
     'openvas': {
         'package': 'openvas',
-        'setup_command': 'gvm-setup',
-        'start_command': 'gvm-start',
-        'scan_command': 'gvm-cli --gmp-username admin --gmp-password admin socket --xml "<create_task><name>WebPhantom-{timestamp}</name><target id=\'{target_id}\'></target><scanner id=\'08b69003-5fc2-4037-a479-93b440211c73\'></scanner><config id=\'daba56c8-73ec-11df-a475-002264764cea\'></config></create_task>"',
+        'setup_command': 'sudo gvm-setup',
+        'start_command': 'sudo gvm-start',
+        'scan_command': 'sudo gvm-cli --gmp-username admin --gmp-password admin socket --xml "<create_task><name>WebPhantom-{timestamp}</name><target id=\'{target_id}\'></target><scanner id=\'08b69003-5fc2-4037-a479-93b440211c73\'></scanner><config id=\'daba56c8-73ec-11df-a475-002264764cea\'></config></create_task>"',
         'description': 'Scanner de vulnérabilités complet',
-        'parse_function': 'parse_openvas_output'
+        'parse_function': 'parse_openvas_output',
+        'timeout': 600,  # 10 minutes
+        'required_files': [],
+        'requires_root': True
     },
     'owasp-zap': {
         'package': 'zaproxy',
         'command': 'zap-cli quick-scan --self-contained --start-options "-config api.disablekey=true" -o {output_file} {target}',
         'description': 'Scanner de vulnérabilités web OWASP ZAP',
-        'parse_function': 'parse_zap_output'
-    },
-
+        'parse_function': 'parse_zap_output',
+        'timeout': 300,  # 5 minutes
+        'required_files': [],
+        'alt_command': 'python3 -m zapv2 --quick-scan -t {target} -o {output_file}'
+    }
 }
 
 def is_valid_ip(ip):
@@ -131,39 +163,148 @@ def ensure_all_tools_installed():
     """Vérifie et installe tous les outils nécessaires"""
     logger.info("Vérification et installation des outils de scan...")
     
+    installed_tools = []
+    skipped_tools = []
+    
     # Installer les outils standards
     for tool_name, tool_info in SCAN_TOOLS.items():
-        ensure_tool_installed(tool_info['package'])
+        if ensure_tool_installed(tool_info['package']):
+            installed_tools.append(tool_name)
+        else:
+            skipped_tools.append(tool_name)
     
     # Installer les outils spéciaux
     for tool_name, tool_info in SPECIAL_TOOLS.items():
-        ensure_tool_installed(tool_info['package'])
-        
-        # Configuration spéciale pour OpenVAS
-        if tool_name == 'openvas' and tool_info.get('setup_command'):
-            try:
-                logger.info(f"Configuration de {tool_name}...")
-                subprocess.run(tool_info['setup_command'], shell=True, check=True)
-            except subprocess.CalledProcessError as e:
-                logger.warning(f"Erreur lors de la configuration de {tool_name}: {e}")
+        if ensure_tool_installed(tool_info['package']):
+            installed_tools.append(tool_name)
+            
+            # Configuration spéciale pour OpenVAS
+            if tool_name == 'openvas' and tool_info.get('setup_command'):
+                # Vérifier si nous avons les droits sudo
+                sudo_check, _ = run_command("sudo -n true", silent=True)
+                if sudo_check:
+                    try:
+                        logger.info(f"Configuration de {tool_name}...")
+                        run_command(tool_info['setup_command'], silent=True)
+                    except Exception:
+                        logger.debug(f"Configuration de {tool_name} ignorée (nécessite des droits root)")
+                else:
+                    logger.debug(f"Configuration de {tool_name} ignorée (nécessite des droits root)")
+        else:
+            skipped_tools.append(tool_name)
+    
+    if installed_tools:
+        logger.info(f"Outils disponibles: {', '.join(installed_tools)}")
+    if skipped_tools:
+        logger.debug(f"Outils non disponibles: {', '.join(skipped_tools)}")
+    
+    return installed_tools
 
 def run_tool_scan(tool_name, tool_info, target, output_dir):
     """Exécute un scan avec un outil spécifique"""
     timestamp = int(time.time())
-    output_file = os.path.join(output_dir, f"{tool_name}_{target.replace('/', '_')}_{timestamp}.xml")
     
-    command = tool_info['command'].format(target=target, output_file=output_file)
+    # Vérifier si l'outil nécessite des droits root
+    if tool_info.get('requires_root', False):
+        sudo_check, _ = run_command("sudo -n true", silent=True)
+        if not sudo_check:
+            logger.debug(f"Droits root requis pour {tool_name} mais non disponibles, scan ignoré")
+            return {
+                'tool': tool_name,
+                'target': target,
+                'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+                'success': False,
+                'output_file': None,
+                'raw_output': "Droits root requis mais non disponibles",
+                'parsed_results': None,
+                'skipped': True
+            }
     
+    # Vérifier si l'outil principal est disponible
+    main_cmd = tool_info['package'].split()[0]
+    if shutil.which(main_cmd) is None:
+        logger.debug(f"Outil {main_cmd} non disponible, scan {tool_name} ignoré")
+        return {
+            'tool': tool_name,
+            'target': target,
+            'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+            'success': False,
+            'output_file': None,
+            'raw_output': f"Outil {main_cmd} non disponible",
+            'parsed_results': None,
+            'skipped': True
+        }
+    
+    # Déterminer l'extension de fichier appropriée
+    if 'json' in tool_info['command'].lower():
+        ext = '.json'
+    elif 'html' in tool_info['command'].lower():
+        ext = '.html'
+    else:
+        ext = '.xml'
+    
+    output_file = os.path.join(output_dir, f"{tool_name}_{target.replace('/', '_')}_{timestamp}{ext}")
+    
+    # Préparer les paramètres de la commande
+    cmd_params = {'target': target, 'output_file': output_file}
+    
+    # Vérifier les fichiers requis et utiliser des fallbacks si nécessaire
+    for req_file in tool_info.get('required_files', []):
+        file_path = req_file['path']
+        param_name = req_file['param']
+        
+        if not os.path.exists(file_path) and 'fallback' in req_file:
+            fallback_path = req_file['fallback']
+            if os.path.exists(fallback_path):
+                logger.debug(f"Utilisation du fichier fallback pour {param_name}: {fallback_path}")
+                cmd_params[param_name] = fallback_path
+            else:
+                logger.debug(f"Fichier requis {file_path} et fallback {fallback_path} non trouvés, scan {tool_name} ignoré")
+                return {
+                    'tool': tool_name,
+                    'target': target,
+                    'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+                    'success': False,
+                    'output_file': None,
+                    'raw_output': f"Fichier requis {file_path} et fallback {fallback_path} non trouvés",
+                    'parsed_results': None,
+                    'skipped': True
+                }
+        else:
+            cmd_params[param_name] = file_path
+    
+    # Construire la commande
+    try:
+        command = tool_info['command'].format(**cmd_params)
+    except KeyError as e:
+        # Si un paramètre est manquant, essayer la commande alternative si disponible
+        if 'alt_command' in tool_info:
+            logger.debug(f"Utilisation de la commande alternative pour {tool_name}")
+            command = tool_info['alt_command'].format(**cmd_params)
+        else:
+            logger.debug(f"Paramètre manquant pour {tool_name}: {e}, scan ignoré")
+            return {
+                'tool': tool_name,
+                'target': target,
+                'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+                'success': False,
+                'output_file': None,
+                'raw_output': f"Paramètre manquant: {e}",
+                'parsed_results': None,
+                'skipped': True
+            }
+    
+    # Exécuter la commande avec timeout
     logger.info(f"Exécution de {tool_name} sur {target}...")
-    success, output = run_command(command)
+    success, output = run_command(command, timeout=tool_info.get('timeout', 300), silent=True)
     
     result = {
         'tool': tool_name,
         'target': target,
         'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
         'success': success,
-        'output_file': output_file if success else None,
-        'raw_output': output,
+        'output_file': output_file if success and os.path.exists(output_file) else None,
+        'raw_output': output if not success else "Scan réussi",
         'parsed_results': None
     }
     
@@ -174,7 +315,7 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
             try:
                 result['parsed_results'] = globals()[parse_function_name](output_file)
             except Exception as e:
-                logger.error(f"Erreur lors de l'analyse des résultats de {tool_name}: {e}")
+                logger.debug(f"Erreur lors de l'analyse des résultats de {tool_name}: {e}")
     
     return result
 
@@ -208,22 +349,38 @@ def scan_ip(target, output_dir=None, tools=None, max_workers=5):
     if not tools:
         tools = list(SCAN_TOOLS.keys()) + list(SPECIAL_TOOLS.keys())
     
-    # S'assurer que tous les outils sont installés
-    ensure_all_tools_installed()
+    # S'assurer que les outils sont installés et obtenir la liste des outils disponibles
+    available_tools = ensure_all_tools_installed()
+    
+    # Filtrer les outils demandés pour ne garder que ceux disponibles
+    tools_to_use = [tool for tool in tools if tool in available_tools]
+    
+    if not tools_to_use:
+        logger.warning("Aucun outil disponible pour le scan")
+        return {
+            'error': "Aucun outil disponible pour le scan",
+            'scan_info': {
+                'target': target,
+                'start_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'end_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'output_dir': output_dir
+            }
+        }
     
     # Résultats globaux
     results = {
         'scan_info': {
             'target': target,
             'start_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'tools_used': tools,
+            'tools_used': tools_to_use,
             'output_dir': output_dir
         },
         'targets': {},
         'summary': {
             'total_targets': len(targets),
             'completed_scans': 0,
-            'failed_scans': 0
+            'failed_scans': 0,
+            'skipped_scans': 0
         }
     }
     
@@ -236,8 +393,8 @@ def scan_ip(target, output_dir=None, tools=None, max_workers=5):
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_tool = {}
             
-            # Soumettre les tâches pour les outils standards
-            for tool_name in tools:
+            # Soumettre les tâches pour les outils disponibles
+            for tool_name in tools_to_use:
                 if tool_name in SCAN_TOOLS:
                     future = executor.submit(run_tool_scan, tool_name, SCAN_TOOLS[tool_name], ip, output_dir)
                     future_to_tool[future] = tool_name
@@ -252,19 +409,23 @@ def scan_ip(target, output_dir=None, tools=None, max_workers=5):
                     tool_result = future.result()
                     results['targets'][ip]['tools'][tool_name] = tool_result
                     
-                    if tool_result['success']:
+                    if tool_result.get('skipped', False):
+                        results['summary']['skipped_scans'] += 1
+                    elif tool_result['success']:
                         results['summary']['completed_scans'] += 1
                     else:
                         results['summary']['failed_scans'] += 1
                         
                 except Exception as e:
-                    logger.error(f"Erreur lors de l'exécution de {tool_name} sur {ip}: {e}")
+                    logger.debug(f"Erreur lors de l'exécution de {tool_name} sur {ip}: {e}")
                     results['targets'][ip]['tools'][tool_name] = {
                         'tool': tool_name,
                         'target': ip,
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'success': False,
-                        'error': str(e)
+                        'output_file': None,
+                        'raw_output': str(e),
+                        'parsed_results': None
                     }
                     results['summary']['failed_scans'] += 1
     
@@ -356,6 +517,10 @@ def generate_ip_scan_report(results, output_file):
                 color: #dc3545;
                 font-weight: bold;
             }}
+            .skipped {{
+                color: #6c757d;
+                font-weight: bold;
+            }}
             .timestamp {{
                 color: #6c757d;
                 font-size: 0.9em;
@@ -416,9 +581,8 @@ def generate_ip_scan_report(results, output_file):
                 <p><strong>Nombre total de cibles:</strong> {results['summary']['total_targets']}</p>
                 <p><strong>Scans réussis:</strong> {results['summary']['completed_scans']}</p>
                 <p><strong>Scans échoués:</strong> {results['summary']['failed_scans']}</p>
+                <p><strong>Scans ignorés:</strong> {results['summary'].get('skipped_scans', 0)}</p>
             </div>
-    """
-    
     # Ajouter les résultats pour chaque cible
     for ip, target_results in results['targets'].items():
         html_content += f"""
@@ -428,8 +592,15 @@ def generate_ip_scan_report(results, output_file):
         
         # Ajouter les résultats pour chaque outil
         for tool_name, tool_result in target_results['tools'].items():
-            status_class = "success" if tool_result.get('success', False) else "failure"
-            status_text = "Réussi" if tool_result.get('success', False) else "Échoué"
+            if tool_result.get('skipped', False):
+                status_class = "skipped"
+                status_text = "Ignoré"
+            elif tool_result.get('success', False):
+                status_class = "success"
+                status_text = "Réussi"
+            else:
+                status_class = "failure"
+                status_text = "Échoué"
             
             html_content += f"""
                 <div class="tool-result">
