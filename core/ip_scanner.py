@@ -202,7 +202,7 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     
     # Vérifier si l'outil nécessite des droits root
     if tool_info.get('requires_root', False):
-        sudo_check, _ = run_command("sudo -n true", silent=True)
+        sudo_check, _ = run_command("sudo -n true", silent=True, show_output=False)
         if not sudo_check:
             logger.debug(f"Droits root requis pour {tool_name} mais non disponibles, scan ignoré")
             return {
@@ -290,9 +290,11 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
                 'skipped': True
             }
     
-    # Exécuter la commande avec timeout
+    # Exécuter la commande avec timeout et affichage en temps réel
     logger.info(f"Exécution de {tool_name} sur {target}...")
-    success, output = run_command(command, timeout=tool_info.get('timeout', 300), silent=True)
+    print(f"\n{'#'*80}\n# DÉBUT DU SCAN: {tool_name.upper()} sur {target}\n{'#'*80}")
+    success, output = run_command(command, timeout=tool_info.get('timeout', 300), silent=False, show_output=True)
+    print(f"\n{'#'*80}\n# FIN DU SCAN: {tool_name.upper()} sur {target}\n{'#'*80}")
     
     result = {
         'tool': tool_name,
@@ -300,8 +302,9 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
         'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
         'success': success,
         'output_file': output_file if success and os.path.exists(output_file) else None,
-        'raw_output': output if not success else "Scan réussi",
-        'parsed_results': None
+        'raw_output': output,  # Toujours stocker la sortie brute pour le rapport HTML
+        'parsed_results': None,
+        'description': tool_info.get('description', 'Outil de scan')
     }
     
     # Analyser les résultats si le scan a réussi
@@ -490,36 +493,82 @@ def generate_ip_scan_report(results, output_file):
                 box-shadow: 0 1px 5px rgba(0, 0, 0, 0.05);
             }}
             .tool-result {{
-                margin-bottom: 20px;
+                margin-bottom: 30px;
                 padding: 15px;
                 background-color: #f8f9fa;
                 border-radius: 6px;
+                border-left: 4px solid #6c757d;
+            }}
+            .tool-result.success {{
+                border-left-color: #28a745;
+            }}
+            .tool-result.failure {{
+                border-left-color: #dc3545;
+            }}
+            .tool-result.skipped {{
+                border-left-color: #6c757d;
             }}
             .tool-header {{
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                margin-bottom: 10px;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 1px solid #eee;
             }}
             .tool-name {{
                 font-weight: bold;
+                font-size: 1.2em;
                 color: #2c3e50;
             }}
-            .success {{
+            .tool-description {{
+                margin-top: 5px;
+                color: #6c757d;
+                font-style: italic;
+            }}
+            .status-success {{
                 color: #28a745;
                 font-weight: bold;
             }}
-            .failure {{
+            .status-failure {{
                 color: #dc3545;
                 font-weight: bold;
             }}
-            .skipped {{
+            .status-skipped {{
                 color: #6c757d;
                 font-weight: bold;
             }}
             .timestamp {{
                 color: #6c757d;
                 font-size: 0.9em;
+                margin-bottom: 15px;
+            }}
+            .raw-output {{
+                background-color: #f8f9fa;
+                border: 1px solid #eee;
+                border-radius: 4px;
+                padding: 15px;
+                margin: 15px 0;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                font-family: 'Courier New', Courier, monospace;
+                font-size: 0.9em;
+                color: #333;
+                max-height: 500px;
+                overflow-y: auto;
+            }}
+            .raw-output-toggle {{
+                cursor: pointer;
+                color: #007bff;
+                margin-bottom: 10px;
+                display: inline-block;
+                user-select: none;
+            }}
+            .raw-output-toggle:hover {{
+                text-decoration: underline;
+            }}
+            .hidden {{
+                display: none;
             }}
             table {{
                 width: 100%;
@@ -562,7 +611,54 @@ def generate_ip_scan_report(results, output_file):
                 color: #6c757d;
                 font-size: 0.9em;
             }}
+            .toc {{
+                background-color: #f8f9fa;
+                padding: 15px;
+                border-radius: 6px;
+                margin-bottom: 30px;
+            }}
+            .toc ul {{
+                list-style-type: none;
+                padding-left: 20px;
+            }}
+            .toc li {{
+                margin-bottom: 5px;
+            }}
+            .toc a {{
+                color: #007bff;
+                text-decoration: none;
+            }}
+            .toc a:hover {{
+                text-decoration: underline;
+            }}
         </style>
+        <script>
+            function toggleOutput(id) {{
+                var output = document.getElementById(id);
+                var button = document.getElementById(id + '-toggle');
+                if (output.classList.contains('hidden')) {{
+                    output.classList.remove('hidden');
+                    button.textContent = '▼ Masquer la sortie brute';
+                }} else {{
+                    output.classList.add('hidden');
+                    button.textContent = '▶ Afficher la sortie brute';
+                }}
+            }}
+            
+            document.addEventListener('DOMContentLoaded', function() {{
+                // Masquer toutes les sorties brutes par défaut
+                var outputs = document.querySelectorAll('.raw-output');
+                outputs.forEach(function(output) {{
+                    output.classList.add('hidden');
+                }});
+                
+                // Mettre à jour le texte des boutons
+                var toggles = document.querySelectorAll('.raw-output-toggle');
+                toggles.forEach(function(toggle) {{
+                    toggle.textContent = '▶ Afficher la sortie brute';
+                }});
+            }});
+        </script>
     </head>
     <body>
         <div class="container">
@@ -579,14 +675,35 @@ def generate_ip_scan_report(results, output_file):
                 <p><strong>Scans échoués:</strong> {results['summary']['failed_scans']}</p>
                 <p><strong>Scans ignorés:</strong> {results['summary'].get('skipped_scans', 0)}</p>
             </div>
+            
+            <div class="toc">
+                <h2>Table des matières</h2>
+                <ul>
+    """
+    
+    # Générer la table des matières
+    toc_id = 1
+    for ip in results['targets'].keys():
+        html_content += f'<li><a href="#target-{toc_id}">Résultats pour {ip}</a><ul>'
+        for tool_name in results['targets'][ip]['tools'].keys():
+            toc_id += 1
+            html_content += f'<li><a href="#tool-{toc_id}">{tool_name}</a></li>'
+        html_content += '</ul></li>'
+        toc_id += 1
+    
+    html_content += """
+                </ul>
+            </div>
     """
     
     # Ajouter les résultats pour chaque cible
+    toc_id = 1
     for ip, target_results in results['targets'].items():
         html_content += f"""
-            <div class="target-section">
+            <div id="target-{toc_id}" class="target-section">
                 <h2>Résultats pour {ip}</h2>
         """
+        toc_id += 1
         
         # Ajouter les résultats pour chaque outil
         for tool_name, tool_result in target_results['tools'].items():
@@ -600,11 +717,25 @@ def generate_ip_scan_report(results, output_file):
                 status_class = "failure"
                 status_text = "Échoué"
             
+            # Échapper les caractères spéciaux dans la sortie brute pour l'affichage HTML
+            raw_output = tool_result.get('raw_output', '')
+            if raw_output:
+                # Remplacer les caractères spéciaux HTML
+                raw_output = raw_output.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            
+            # Générer un ID unique pour cet outil
+            tool_id = f"tool-{toc_id}"
+            output_id = f"output-{toc_id}"
+            toc_id += 1
+            
             html_content += f"""
-                <div class="tool-result">
+                <div id="{tool_id}" class="tool-result {status_class}">
                     <div class="tool-header">
-                        <span class="tool-name">{tool_name}</span>
-                        <span class="{status_class}">{status_text}</span>
+                        <div>
+                            <div class="tool-name">{tool_name}</div>
+                            <div class="tool-description">{tool_result.get('description', 'Outil de scan')}</div>
+                        </div>
+                        <span class="status-{status_class}">{status_text}</span>
                     </div>
                     <div class="timestamp">Exécuté le {tool_result.get('timestamp', 'N/A')}</div>
             """
@@ -613,7 +744,19 @@ def generate_ip_scan_report(results, output_file):
             if tool_result.get('parsed_results'):
                 html_content += f"""
                     <div class="parsed-results">
+                        <h3>Résultats analysés</h3>
                         {format_parsed_results(tool_name, tool_result['parsed_results'])}
+                    </div>
+                """
+            
+            # Ajouter la sortie brute avec bouton pour afficher/masquer
+            if raw_output:
+                html_content += f"""
+                    <div class="raw-output-container">
+                        <div id="{output_id}-toggle" class="raw-output-toggle" onclick="toggleOutput('{output_id}')">▶ Afficher la sortie brute</div>
+                        <div id="{output_id}" class="raw-output">
+                            {raw_output}
+                        </div>
                     </div>
                 """
             

@@ -14,7 +14,7 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def run_command(command, timeout=None, silent=False, ignore_errors=False):
+def run_command(command, timeout=None, silent=False, ignore_errors=False, show_output=True):
     """
     Exécute une commande shell et retourne le résultat
     
@@ -23,6 +23,7 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False):
         timeout (int, optional): Timeout en secondes
         silent (bool, optional): Si True, ne pas logger les erreurs non critiques
         ignore_errors (bool, optional): Si True, considérer la commande comme réussie même en cas d'erreur
+        show_output (bool, optional): Si True, afficher la sortie en temps réel
         
     Returns:
         tuple: (success, output)
@@ -42,32 +43,69 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False):
                 logger.warning(f"Commande non trouvée: {main_cmd}")
             return False, f"Commande non trouvée: {main_cmd}"
         
-        # Exécuter la commande
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
+        # Afficher la commande qui va être exécutée
+        if show_output:
+            print(f"\n{'='*80}\n[EXÉCUTION] {command}\n{'='*80}")
         
-        stdout, stderr = process.communicate(timeout=timeout)
-        success = process.returncode == 0 or ignore_errors
+        # Exécuter la commande
+        if show_output:
+            # Mode avec affichage en temps réel
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Rediriger stderr vers stdout pour un affichage unifié
+                universal_newlines=True,
+                bufsize=1  # Line buffered
+            )
+            
+            # Capturer la sortie complète pour le retour
+            full_output = []
+            
+            # Lire et afficher la sortie ligne par ligne en temps réel
+            for line in iter(process.stdout.readline, ''):
+                print(f"[SORTIE] {line.rstrip()}")
+                full_output.append(line)
+            
+            process.stdout.close()
+            return_code = process.wait()
+            success = return_code == 0 or ignore_errors
+            output = ''.join(full_output)
+            
+            if show_output:
+                print(f"\n{'='*80}\n[TERMINÉ] Code de retour: {return_code}\n{'='*80}")
+        else:
+            # Mode silencieux (ancien comportement)
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            stdout, stderr = process.communicate(timeout=timeout)
+            success = process.returncode == 0 or ignore_errors
+            output = stdout if success else stderr
         
         if not success and not silent:
             logger.debug(f"Commande échouée (code {process.returncode}): {command}")
-            if stderr.strip():
+            if not show_output and stderr and stderr.strip():
                 logger.debug(f"Message d'erreur: {stderr.strip()}")
         
-        return success, stdout if success else stderr
+        return success, output
     except subprocess.TimeoutExpired:
         process.kill()
         if not silent:
             logger.debug(f"Timeout expiré pour la commande: {command}")
+        if show_output:
+            print(f"\n{'='*80}\n[TIMEOUT] La commande a dépassé le délai d'attente\n{'='*80}")
         return False, "Timeout expiré"
     except Exception as e:
         if not silent:
             logger.debug(f"Erreur lors de l'exécution de la commande {command}: {e}")
+        if show_output:
+            print(f"\n{'='*80}\n[ERREUR] {str(e)}\n{'='*80}")
         return False, str(e)
 
 def ensure_tool_installed(package_name):
