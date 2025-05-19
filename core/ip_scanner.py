@@ -10,6 +10,7 @@ import shutil
 import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from .utils import ensure_tool_installed, run_command, create_output_dir
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -108,17 +109,6 @@ SCAN_TOOLS = {
 
 # Outils nécessitant une configuration spéciale
 SPECIAL_TOOLS = {
-    'openvas': {
-        'package': 'openvas',
-        'setup_command': 'sudo gvm-setup',
-        'start_command': 'sudo gvm-start',
-        'scan_command': 'sudo gvm-cli --gmp-username admin --gmp-password admin socket --xml "<create_task><n>WebPhantom-{timestamp}</n><target id=\'{target_id}\'></target><scanner id=\'08b69003-5fc2-4037-a479-93b440211c73\'></scanner><config id=\'daba56c8-73ec-11df-a475-002264764cea\'></config></create_task>"',
-        'description': 'Scanner de vulnérabilités complet',
-        'parse_function': 'parse_openvas_output',
-        'timeout': 600,  # 10 minutes
-        'required_files': [],
-        'requires_root': True
-    },
     'owasp-zap': {
         'package': 'zaproxy',
         'command': 'zap-cli quick-scan --self-contained --start-options "-config api.disablekey=true" -o {output_file} {target}',
@@ -173,19 +163,6 @@ def ensure_all_tools_installed():
     for tool_name, tool_info in SPECIAL_TOOLS.items():
         if ensure_tool_installed(tool_info['package']):
             installed_tools.append(tool_name)
-            
-            # Configuration spéciale pour OpenVAS
-            if tool_name == 'openvas' and tool_info.get('setup_command'):
-                # Vérifier si nous avons les droits sudo
-                sudo_check, _ = run_command("sudo -n true", silent=True)
-                if sudo_check:
-                    try:
-                        logger.info(f"Configuration de {tool_name}...")
-                        run_command(tool_info['setup_command'], silent=True)
-                    except Exception:
-                        logger.debug(f"Configuration de {tool_name} ignorée (nécessite des droits root)")
-                else:
-                    logger.debug(f"Configuration de {tool_name} ignorée (nécessite des droits root)")
         else:
             skipped_tools.append(tool_name)
     
@@ -288,7 +265,7 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     try:
         # Tenter un ping simple pour vérifier si la cible est accessible
         ping_cmd = f"ping -c 1 -W 2 {target}"
-        ping_success, ping_output = run_command(ping_cmd, timeout=5, silent=True)
+        ping_success, ping_output = run_command(ping_cmd, timeout=5, silent=True, show_output=False)
         
         if ping_success:
             logger.info(f"Connectivité réseau vers {target} confirmée")
@@ -793,61 +770,19 @@ def generate_ip_scan_report(results, output_file):
     
     logger.info(f"Rapport HTML généré avec succès: {output_file}")
 
-def run_command(command, timeout=None, silent=False, ignore_errors=False):
+def run_all_tools(target, output_dir=None):
     """
-    Exécute une commande shell et retourne le résultat
+    Exécute tous les outils de scan sur une cible
     
     Args:
-        command (str): Commande à exécuter
-        timeout (int, optional): Timeout en secondes
-        silent (bool, optional): Si True, ne pas logger les erreurs non critiques
-        ignore_errors (bool, optional): Si True, considérer la commande comme réussie même en cas d'erreur
+        target (str): Adresse IP ou nom d'hôte à scanner
+        output_dir (str, optional): Répertoire de sortie pour les résultats
         
     Returns:
-        tuple: (success, output)
+        dict: Résultats du scan
     """
-    try:
-        # Vérifier si la commande principale existe
-        cmd_parts = command.split()
-        main_cmd = cmd_parts[0]
-        
-        # Vérifier si la commande existe avant de l'exécuter
-        if not silent:
-            logger.debug(f"Vérification de la disponibilité de la commande: {main_cmd}")
-        
-        cmd_exists = shutil.which(main_cmd) is not None
-        if not cmd_exists:
-            if not silent:
-                logger.warning(f"Commande non trouvée: {main_cmd}")
-            return False, f"Commande non trouvée: {main_cmd}"
-        
-        # Exécuter la commande
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
-        
-        stdout, stderr = process.communicate(timeout=timeout)
-        success = process.returncode == 0 or ignore_errors
-        
-        if not success and not silent:
-            logger.debug(f"Commande échouée (code {process.returncode}): {command}")
-            if stderr.strip():
-                logger.debug(f"Message d'erreur: {stderr.strip()}")
-        
-        return success, stdout if success else stderr
-    except subprocess.TimeoutExpired:
-        process.kill()
-        if not silent:
-            logger.debug(f"Timeout expiré pour la commande: {command}")
-        return False, "Timeout expiré"
-    except Exception as e:
-        if not silent:
-            logger.debug(f"Erreur lors de l'exécution de la commande {command}: {e}")
-        return False, str(e)
+    logger.info(f"Exécution de tous les outils de scan sur la cible: {target}")
+    return scan_ip(target, output_dir, tools=None)
 
 def ensure_tool_installed(package_name):
     """
