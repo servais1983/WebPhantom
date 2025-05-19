@@ -18,6 +18,9 @@ WebPhantom est un outil de pentest web automatisé conçu pour la reconnaissance
 - 🔮 **Fuzzing** : Découverte de paramètres et endpoints vulnérables
 - 👁️ **Fingerprinting** : Identification précise des technologies utilisées
 - 🔒 **Tests SSL/TLS** : Analyse des configurations de sécurité
+- 🌐 **Scan IP complet** : Analyse de plages d'adresses IP avec multiples outils de sécurité
+- 🔄 **Intégration multi-outils** : Support pour Nmap, OpenVAS, Nikto, OWASP ZAP, w3af, TestSSL.sh, SNMP-check, Hydra, SSLyze, WPScan, Dirb/Dirbuster, Gobuster et Nuclei
+- 🚀 **Commande unifiée** : Exécution de tous les outils en une seule commande
 
 ## Installation
 
@@ -54,6 +57,9 @@ pip install bcrypt
 
 # 5. Installer toutes les dépendances restantes
 pip install -r requirements.txt
+
+# 6. Installer les outils externes nécessaires pour le scan IP
+python3 webphantom.py install-tools
 ```
 
 ### Installation sans environnement virtuel (non recommandé)
@@ -120,6 +126,18 @@ python webphantom.py ai https://example.com
 
 # Exécuter un scénario YAML
 python webphantom.py run scripts/advanced_web_test.yaml --target https://example.com
+
+# Scanner une adresse IP ou une plage d'adresses IP
+python webphantom.py ip-scan 192.168.1.1
+
+# Scanner une plage d'adresses IP
+python webphantom.py ip-scan 192.168.1.0/24
+
+# Exécuter tous les outils de scan sur une cible
+python webphantom.py all-tools 192.168.1.1
+
+# Installer tous les outils nécessaires
+python webphantom.py install-tools
 ```
 
 ### Scénarios YAML avancés
@@ -164,6 +182,38 @@ python webphantom.py run scripts/advanced_web_test.yaml https://example.com
 python webphantom.py run scripts/advanced_web_test.yaml
 ```
 
+### Scan IP et intégration multi-outils
+
+WebPhantom intègre désormais un module complet de scan IP qui permet d'analyser des adresses IP individuelles ou des plages d'adresses IP complètes avec différents outils de sécurité :
+
+```bash
+# Scanner une adresse IP avec tous les outils disponibles
+python webphantom.py all-tools 192.168.1.1
+
+# Scanner une plage d'adresses IP avec des outils spécifiques
+python webphantom.py ip-scan 192.168.1.0/24 --tools nmap nikto testssl
+
+# Exécuter un scénario YAML incluant des scans IP
+python webphantom.py run scripts/all_tools_scan.yaml
+```
+
+Exemple de scénario YAML pour le scan IP :
+
+```yaml
+target: 192.168.1.0/24
+steps:
+  - type: ip-scan
+    options:
+      tools:
+        - nmap
+        - nikto
+        - testssl
+  - type: wait
+    options:
+      seconds: 2
+  - type: all-tools
+```
+
 ### Types d'étapes supportées
 
 | Type | Description | Options |
@@ -181,6 +231,8 @@ python webphantom.py run scripts/advanced_web_test.yaml
 | ssl-scan | Analyse SSL/TLS | - |
 | dos-test | Tests de résistance DoS | - |
 | wait | Attente entre les étapes | seconds |
+| ip-scan | Scan d'adresses IP | tools (liste d'outils à utiliser) |
+| all-tools | Exécution de tous les outils | - |
 
 ## Modules principaux
 
@@ -224,6 +276,36 @@ Le module `payload_generator.py` permet de créer et gérer des charges utiles p
 - Obfuscation pour contourner les protections
 - Organisation par catégories et ensembles
 
+### 🌐 Scanner IP
+Le nouveau module `ip_scanner.py` permet d'analyser des adresses IP et des plages d'adresses IP :
+
+- Support pour les adresses IP individuelles et les plages CIDR
+- Intégration de multiples outils de sécurité (Nmap, Nikto, TestSSL, etc.)
+- Installation automatique des outils nécessaires
+- Génération de rapports HTML détaillés
+- Exécution parallèle pour optimiser les performances
+- Analyse et formatage des résultats pour une meilleure lisibilité
+
+## Outils intégrés
+
+WebPhantom intègre désormais les outils suivants pour le scan IP et l'analyse de sécurité :
+
+| Outil | Description |
+|-------|-------------|
+| Nmap | Scanner réseau avancé pour la découverte de services et la détection de versions |
+| OpenVAS | Scanner de vulnérabilités complet |
+| Nikto | Scanner de vulnérabilités web |
+| OWASP ZAP | Proxy d'interception et scanner de vulnérabilités web |
+| w3af | Framework de scan de vulnérabilités web |
+| TestSSL.sh | Vérification de la configuration SSL/TLS |
+| SNMP-check | Vérification des configurations SNMP |
+| Hydra | Outil de brute force pour les services réseau |
+| SSLyze | Analyse avancée des configurations SSL/TLS |
+| WPScan | Scanner de vulnérabilités WordPress |
+| Dirb/Dirbuster | Découverte de répertoires et fichiers web |
+| Gobuster | Découverte de répertoires et fichiers web (alternative à dirb) |
+| Nuclei | Scanner de vulnérabilités basé sur des templates |
+
 ## Résolution des problèmes courants
 
 ### Erreur "ModuleNotFoundError: No module named 'nltk'"
@@ -253,6 +335,18 @@ Cette erreur est due à la politique PEP 668 de Kali Linux :
 
 1. Utilisez un environnement virtuel (recommandé)
 2. Ou utilisez l'option `--break-system-packages` avec pip
+
+### Erreur lors de l'installation des outils externes
+
+Si vous rencontrez des erreurs lors de l'installation des outils externes :
+
+```bash
+# Assurez-vous que votre système est à jour
+sudo apt-get update && sudo apt-get upgrade -y
+
+# Installez les outils manuellement
+sudo apt-get install -y nmap nikto testssl.sh snmp-check hydra sslyze wpscan dirb gobuster
+```
 
 Pour plus de détails sur la résolution des problèmes, consultez le fichier [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 

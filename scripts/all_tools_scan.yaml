@@ -1,0 +1,19 @@
+target: 192.168.1.0/24
+steps:
+  - type: ip-scan
+    options:
+      tools:
+        - nmap
+        - nikto
+        - testssl
+        - snmp-check
+        - hydra
+        - sslyze
+        - wpscan
+        - dirb
+        - gobuster
+        - nuclei
+  - type: wait
+    options:
+      seconds: 2
+  - type: all-tools

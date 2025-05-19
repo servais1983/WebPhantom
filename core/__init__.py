@@ -1,2 +1,2 @@
-# Fichier __init__.py pour le package core
-# Permet l'import des modules du package
+# Module d'initialisation pour WebPhantom
+# Permet l'importation des modules du package core
