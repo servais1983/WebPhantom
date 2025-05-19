@@ -109,6 +109,24 @@ Si vous rencontrez des erreurs "No space left on device" :
 
 ## Utilisation
 
+### ⚠️ Exécution avec sudo requise
+
+**IMPORTANT** : Tous les outils de scan IP et de sécurité nécessitent des droits administrateur pour fonctionner correctement. Vous devez exécuter WebPhantom avec `sudo` pour les commandes de scan IP et d'outils de sécurité.
+
+```bash
+# Installer tous les outils nécessaires (avec sudo)
+sudo python webphantom.py install-tools
+
+# Scanner une adresse IP ou une plage d'adresses IP (avec sudo)
+sudo python webphantom.py ip-scan 192.168.1.1
+
+# Scanner une plage d'adresses IP (avec sudo)
+sudo python webphantom.py ip-scan 192.168.1.0/24
+
+# Exécuter tous les outils de scan sur une cible (avec sudo)
+sudo python webphantom.py all-tools 192.168.1.1
+```
+
 ### Commandes de base
 
 ```bash
@@ -126,18 +144,6 @@ python webphantom.py ai https://example.com
 
 # Exécuter un scénario YAML
 python webphantom.py run scripts/advanced_web_test.yaml --target https://example.com
-
-# Scanner une adresse IP ou une plage d'adresses IP
-python webphantom.py ip-scan 192.168.1.1
-
-# Scanner une plage d'adresses IP
-python webphantom.py ip-scan 192.168.1.0/24
-
-# Exécuter tous les outils de scan sur une cible
-python webphantom.py all-tools 192.168.1.1
-
-# Installer tous les outils nécessaires
-python webphantom.py install-tools
 ```
 
 ### Scénarios YAML avancés

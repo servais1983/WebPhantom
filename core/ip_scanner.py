@@ -200,36 +200,25 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     """Exécute un scan avec un outil spécifique"""
     timestamp = int(time.time())
     
-    # Vérifier si l'outil nécessite des droits root
-    if tool_info.get('requires_root', False):
-        sudo_check, _ = run_command("sudo -n true", silent=True, show_output=False)
-        if not sudo_check:
-            logger.debug(f"Droits root requis pour {tool_name} mais non disponibles, scan ignoré")
+    # Vérifier si l'outil principal est disponible
+    main_cmd = tool_info['package'].split()[0]
+    if shutil.which(main_cmd) is None:
+        logger.warning(f"Outil {main_cmd} non disponible, tentative d'installation automatique...")
+        # Tenter d'installer l'outil
+        if ensure_tool_installed(tool_info['package']):
+            logger.info(f"Installation de {main_cmd} réussie, poursuite du scan")
+        else:
+            logger.error(f"Échec de l'installation de {main_cmd}, scan impossible")
             return {
                 'tool': tool_name,
                 'target': target,
                 'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
                 'success': False,
                 'output_file': None,
-                'raw_output': "Droits root requis mais non disponibles",
+                'raw_output': f"Outil {main_cmd} non disponible et installation automatique échouée",
                 'parsed_results': None,
                 'skipped': True
             }
-    
-    # Vérifier si l'outil principal est disponible
-    main_cmd = tool_info['package'].split()[0]
-    if shutil.which(main_cmd) is None:
-        logger.debug(f"Outil {main_cmd} non disponible, scan {tool_name} ignoré")
-        return {
-            'tool': tool_name,
-            'target': target,
-            'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
-            'success': False,
-            'output_file': None,
-            'raw_output': f"Outil {main_cmd} non disponible",
-            'parsed_results': None,
-            'skipped': True
-        }
     
     # Déterminer l'extension de fichier appropriée
     if 'json' in tool_info['command'].lower():
@@ -293,6 +282,26 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     # Exécuter la commande avec timeout et affichage en temps réel
     logger.info(f"Exécution de {tool_name} sur {target}...")
     print(f"\n{'#'*80}\n# DÉBUT DU SCAN: {tool_name.upper()} sur {target}\n{'#'*80}")
+    
+    # Vérifier la connectivité réseau avant d'exécuter l'outil
+    ping_success = False
+    try:
+        # Tenter un ping simple pour vérifier si la cible est accessible
+        ping_cmd = f"ping -c 1 -W 2 {target}"
+        ping_success, ping_output = run_command(ping_cmd, timeout=5, silent=True, show_output=False)
+        
+        if ping_success:
+            logger.info(f"Connectivité réseau vers {target} confirmée")
+        else:
+            logger.warning(f"Impossible de joindre {target} par ping, tentative de scan quand même...")
+    except Exception as e:
+        logger.warning(f"Erreur lors du test de connectivité vers {target}: {e}")
+    
+    # Ajouter sudo à la commande si elle n'en contient pas déjà
+    if not command.startswith('sudo '):
+        command = f"sudo {command}"
+    
+    # Exécuter la commande même si le ping échoue (certains hôtes bloquent les pings)
     success, output = run_command(command, timeout=tool_info.get('timeout', 300), silent=False, show_output=True)
     print(f"\n{'#'*80}\n# FIN DU SCAN: {tool_name.upper()} sur {target}\n{'#'*80}")
     

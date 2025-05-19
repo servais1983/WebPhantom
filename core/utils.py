@@ -128,24 +128,39 @@ def ensure_tool_installed(package_name):
     
     # Vérifier si nous avons les droits sudo
     has_sudo = False
-    sudo_check, _ = run_command("sudo -n true", silent=True)
+    sudo_check, _ = run_command("sudo -n true", silent=True, show_output=False)
     if sudo_check:
         has_sudo = True
     
     # Installer l'outil
     if has_sudo:
+        # Essayer d'abord avec apt
         install_command = f"apt-get update -qq && apt-get install -y -qq {package_name}"
-        success, output = run_command(f"sudo {install_command}", silent=True)
+        success, output = run_command(f"sudo {install_command}", silent=False, show_output=True)
+        
+        # Si apt échoue, essayer avec pip pour les outils Python
+        if not success and (package_name.startswith('python') or package_name in ['sslyze', 'wpscan', 'nuclei']):
+            logger.info(f"Tentative d'installation via pip pour {package_name}...")
+            pip_command = f"pip install {package_name}"
+            success, output = run_command(f"sudo {pip_command}", silent=False, show_output=True)
     else:
-        logger.warning(f"Droits sudo requis pour installer {package_name}. Veuillez l'installer manuellement.")
-        return False
+        # Essayer sans sudo (moins de chances de succès)
+        logger.warning(f"Droits sudo non disponibles pour installer {package_name}. Tentative sans sudo...")
+        install_command = f"apt-get update -qq && apt-get install -y -qq {package_name}"
+        success, output = run_command(install_command, silent=False, show_output=True)
+        
+        # Essayer avec pip local si apt échoue
+        if not success and (package_name.startswith('python') or package_name in ['sslyze', 'wpscan', 'nuclei']):
+            logger.info(f"Tentative d'installation via pip local pour {package_name}...")
+            pip_command = f"pip install --user {package_name}"
+            success, output = run_command(pip_command, silent=False, show_output=True)
     
     # Vérifier si l'installation a réussi
     if shutil.which(tool_name) is not None:
         logger.info(f"{package_name} a été installé avec succès.")
         return True
     else:
-        logger.debug(f"Échec de l'installation de {package_name}: {output}")
+        logger.error(f"Échec de l'installation de {package_name}: {output}")
         return False
 
 def create_output_dir(prefix='output'):
