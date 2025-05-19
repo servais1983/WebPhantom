@@ -193,14 +193,14 @@ python webphantom.py run scripts/advanced_web_test.yaml
 WebPhantom intègre désormais un module complet de scan IP qui permet d'analyser des adresses IP individuelles ou des plages d'adresses IP complètes avec différents outils de sécurité :
 
 ```bash
-# Scanner une adresse IP avec tous les outils disponibles
-python webphantom.py all-tools 192.168.1.1
+# Scanner une adresse IP avec tous les outils disponibles (avec sudo)
+sudo python webphantom.py all-tools 192.168.1.1
 
-# Scanner une plage d'adresses IP avec des outils spécifiques
-python webphantom.py ip-scan 192.168.1.0/24 --tools nmap nikto testssl
+# Scanner une plage d'adresses IP avec des outils spécifiques (avec sudo)
+sudo python webphantom.py ip-scan 192.168.1.0/24 --tools nmap nikto testssl
 
-# Exécuter un scénario YAML incluant des scans IP
-python webphantom.py run scripts/all_tools_scan.yaml
+# Exécuter un scénario YAML incluant des scans IP (avec sudo)
+sudo python webphantom.py run scripts/all_tools_scan.yaml
 ```
 
 Exemple de scénario YAML pour le scan IP :
@@ -310,8 +310,7 @@ WebPhantom intègre désormais les outils suivants pour le scan IP et l'analyse 
 | Dirb/Dirbuster | Découverte de répertoires et fichiers web |
 | Gobuster | Découverte de répertoires et fichiers web (alternative à dirb) |
 | Nuclei | Scanner de vulnérabilités basé sur des templates |
-
-## Résolution des problèmes courants
+### Résolution des problèmes courants
 
 ### Erreur "ModuleNotFoundError: No module named 'nltk'"
 
@@ -323,6 +322,16 @@ pip install nltk
 
 # Sans environnement virtuel sur Kali Linux
 pip install nltk --break-system-packages
+```
+
+### Erreur "Permission denied" lors de l'exécution des outils de scan
+
+Cette erreur indique que vous n'avez pas les droits administrateur nécessaires :
+
+```bash
+# Assurez-vous d'utiliser sudo pour toutes les commandes de scan
+sudo python webphantom.py all-tools 192.168.1.1
+sudo python webphantom.py ip-scan 192.168.1.0/24
 ```
 
 ### Erreur "No space left on device" lors du téléchargement des modèles
