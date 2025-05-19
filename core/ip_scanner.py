@@ -28,7 +28,7 @@ SCAN_TOOLS = {
     },
     'nikto': {
         'package': 'nikto',
-        'command': 'nikto -h {target} -output {output_file} -Format xml -timeout 60',
+        'command': 'nikto -host {target} -output {output_file} -Format xml -timeout 60',
         'description': 'Scanner de vulnérabilités web',
         'parse_function': 'parse_nikto_output',
         'timeout': 300,  # 5 minutes
@@ -41,7 +41,8 @@ SCAN_TOOLS = {
         'parse_function': 'parse_testssl_output',
         'timeout': 180,  # 3 minutes
         'required_files': [],
-        'setup_command': 'mkdir -p /usr/local/bin/etc/ && cp -r /usr/share/testssl.sh/etc/* /usr/local/bin/etc/ 2>/dev/null || true'
+        'setup_command': 'mkdir -p /usr/local/bin/etc/ && cp -r /usr/share/testssl.sh/etc/* /usr/local/bin/etc/ 2>/dev/null || true',
+        'pre_command': 'mkdir -p /usr/local/bin/etc/ && cp -r /usr/share/testssl.sh/etc/* /usr/local/bin/etc/ 2>/dev/null || true'
     },
     'snmp-check': {
         'package': 'snmp-check',
@@ -90,7 +91,7 @@ SCAN_TOOLS = {
     },
     'gobuster': {
         'package': 'gobuster',
-        'command': 'gobuster dir -u http://{target} -w {wordlist} -o {output_file} -q -s "200,204,301,302,307,401,403"',
+        'command': 'gobuster dir -u http://{target} -w {wordlist} -o {output_file} -q -b "404"',
         'description': 'Découverte de répertoires et fichiers web (alternative à dirb)',
         'parse_function': 'parse_gobuster_output',
         'timeout': 300,  # 5 minutes
@@ -273,6 +274,23 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
             logger.warning(f"Impossible de joindre {target} par ping, tentative de scan quand même...")
     except Exception as e:
         logger.warning(f"Erreur lors du test de connectivité vers {target}: {e}")
+    
+    # Construire la commande finale
+    command = tool_info['command'].format(target=target, output_file=output_file, **required_files)
+    
+    # Exécuter la commande de pré-exécution si elle existe
+    if 'pre_command' in tool_info and tool_info['pre_command']:
+        try:
+            pre_cmd = tool_info['pre_command']
+            if not pre_cmd.startswith('sudo '):
+                pre_cmd = f"sudo {pre_cmd}"
+            
+            logger.debug(f"Exécution de la commande de pré-exécution pour {tool_name}")
+            pre_success, pre_output = run_command(pre_cmd, timeout=30, silent=True, show_output=False)
+            if not pre_success:
+                logger.warning(f"La commande de pré-exécution pour {tool_name} a échoué: {pre_output}")
+        except Exception as e:
+            logger.warning(f"Erreur lors de l'exécution de la commande de pré-exécution pour {tool_name}: {e}")
     
     # Ajouter sudo à la commande si elle n'en contient pas déjà
     if not command.startswith('sudo '):
