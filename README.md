@@ -19,7 +19,7 @@ WebPhantom est un outil de pentest web automatisé conçu pour la reconnaissance
 - 👁️ **Fingerprinting** : Identification précise des technologies utilisées
 - 🔒 **Tests SSL/TLS** : Analyse des configurations de sécurité
 - 🌐 **Scan IP complet** : Analyse de plages d'adresses IP avec multiples outils de sécurité
-- 🔄 **Intégration multi-outils** : Support pour Nmap, Nikto, OWASP ZAP, TestSSL.sh, SNMP-check, Hydra, SSLyze, WPScan, Dirb/Dirbuster, Gobuster et Nuclei
+- 🔄 **Intégration multi-outils** : Support pour Nmap, Nikto, TestSSL.sh, SNMP-check, Hydra, SSLyze, WPScan, Dirb/Dirbuster, Gobuster, Nuclei et LinPEAS
 - 🚀 **Commande unifiée** : Exécution de tous les outils en une seule commande
 - 🔥 **Exploitation automatique** : Exploitation des vulnérabilités découvertes
 
@@ -128,6 +128,60 @@ sudo python webphantom.py ip-scan 192.168.1.0/24
 sudo python webphantom.py all-tools 192.168.1.1
 ```
 
+### Exploitation automatique des failles
+
+WebPhantom intègre désormais une fonctionnalité d'exploitation automatique des vulnérabilités découvertes lors des scans. Cette fonctionnalité offensive permet de :
+
+- **Exploiter automatiquement** les vulnérabilités détectées par chaque outil
+- **Valider** les failles par des tests d'exploitation réels
+- **Documenter** les exploits réussis dans le rapport HTML
+- **Fournir** des recommandations de remédiation pour chaque vulnérabilité
+
+L'exploitation automatique est activée par défaut pour tous les scans et ne nécessite aucune configuration supplémentaire.
+
+#### Vulnérabilités exploitées automatiquement
+
+| Outil | Vulnérabilités exploitées |
+|-------|---------------------------|
+| Nmap | MS17-010 (EternalBlue), vulnérabilités critiques des services |
+| Nikto | XSS, injections SQL, failles d'inclusion |
+| Hydra | Identifiants faibles, authentification par force brute |
+| WPScan | Vulnérabilités WordPress, plugins obsolètes |
+| Nuclei | Diverses vulnérabilités web basées sur des templates |
+| LinPEAS | Escalade de privilèges, mauvaises configurations |
+
+#### Exemple de rapport d'exploitation
+
+Après un scan, le rapport HTML généré inclut une section dédiée aux vulnérabilités exploitées :
+
+```
+Vulnérabilités exploitées (3)
+-----------------------------
+[CRITIQUE] MS17-010 (EternalBlue) sur 192.168.1.1:445
+  - Exploitation réussie : Accès système obtenu
+  - Remédiation : Appliquer le correctif MS17-010 de Microsoft
+
+[ÉLEVÉE] XSS Persistant sur http://192.168.1.1/contact.php
+  - Exploitation réussie : Script injecté <script>alert('XSS')</script>
+  - Remédiation : Valider et échapper toutes les entrées utilisateur
+
+[CRITIQUE] Identifiants faibles sur 192.168.1.1:22 (SSH)
+  - Exploitation réussie : Connexion établie avec admin:password123
+  - Remédiation : Changer immédiatement les mots de passe, implémenter une politique de mots de passe forts
+```
+
+#### Utilisation avancée
+
+Pour exécuter uniquement l'exploitation sans le scan complet (si vous avez déjà des résultats de scan) :
+
+```bash
+# Exploiter les vulnérabilités à partir d'un rapport de scan existant
+sudo python webphantom.py exploit --report /chemin/vers/rapport.html
+
+# Exploiter les vulnérabilités spécifiques à un outil
+sudo python webphantom.py exploit --tool nmap --target 192.168.1.1
+```
+
 ### Scénarios YAML avancés
 
 WebPhantom permet d'automatiser les tests avec des scénarios YAML personnalisables :
@@ -221,6 +275,7 @@ steps:
 | wait | Attente entre les étapes | seconds |
 | ip-scan | Scan d'adresses IP | tools (liste d'outils à utiliser) |
 | all-tools | Exécution de tous les outils | - |
+| exploit | Exploitation des vulnérabilités | report, tool, target |
 
 ## Modules principaux
 
@@ -275,6 +330,16 @@ Le nouveau module `ip_scanner.py` permet d'analyser des adresses IP et des plage
 - Analyse et formatage des résultats pour une meilleure lisibilité
 - Exploitation automatique des vulnérabilités découvertes
 
+### 🔥 Exploitation automatique
+Le nouveau module d'exploitation automatique permet de valider et d'exploiter les vulnérabilités découvertes :
+
+- Exploitation des vulnérabilités détectées par chaque outil de scan
+- Validation des failles par des tests d'exploitation réels
+- Documentation détaillée des exploits réussis
+- Recommandations de remédiation pour chaque vulnérabilité
+- Intégration transparente dans le workflow de scan
+- Affichage des résultats d'exploitation dans le rapport HTML
+
 ## Outils intégrés
 
 WebPhantom intègre désormais les outils suivants pour le scan IP et l'analyse de sécurité :
@@ -283,7 +348,6 @@ WebPhantom intègre désormais les outils suivants pour le scan IP et l'analyse 
 |-------|-------------|
 | Nmap | Scanner réseau avancé pour la découverte de services et la détection de versions |
 | Nikto | Scanner de vulnérabilités web |
-| OWASP ZAP | Proxy d'interception et scanner de vulnérabilités web |
 | TestSSL.sh | Vérification de la configuration SSL/TLS |
 | SNMP-check | Vérification des configurations SNMP |
 | Hydra | Outil de brute force pour les services réseau |
