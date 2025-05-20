@@ -11,6 +11,7 @@ import logging
 import signal
 import threading
 import html
+import glob
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .utils import ensure_tool_installed, run_command, create_output_dir
@@ -145,7 +146,7 @@ SCAN_TOOLS = {
         'timeout': 600,  # 10 minutes
         'pre_command': 'if [ ! -d "/tmp/linpeas" ]; then git clone https://github.com/carlospolop/PEASS-ng.git /tmp/linpeas; fi',
         'required_files': [
-            {'path': '/tmp/linpeas/linPEAS/linpeas.sh', 'fallback': '/tmp/linpeas/linPEAS/linpeas.sh', 'param': 'linpeas_path'}
+            {'path': '/tmp/linpeas/linPEAS/linpeas.sh', 'fallback': None, 'param': 'linpeas_path', 'dynamic_find': True}
         ],
         'ssh_required': True,  # Nécessite un accès SSH
         'exploit_function': 'exploit_linpeas_findings'
@@ -180,6 +181,42 @@ def expand_ip_range(ip_range):
         logger.error(f"Erreur lors de l'expansion de la plage IP {ip_range}: {e}")
         return []
 
+def find_linpeas_script():
+    """Recherche dynamiquement le script linpeas.sh dans le dépôt cloné"""
+    # Rechercher dans les emplacements possibles
+    possible_paths = [
+        '/tmp/linpeas/linPEAS/linpeas.sh',
+        '/tmp/linpeas/linPEAS/*.sh',
+        '/tmp/linpeas/*/linpeas.sh',
+        '/tmp/linpeas/*/*/linpeas.sh',
+        '/tmp/linpeas/*/*/*/linpeas.sh'
+    ]
+    
+    for path_pattern in possible_paths:
+        matches = glob.glob(path_pattern)
+        if matches:
+            for match in matches:
+                if 'linpeas.sh' in match.lower():
+                    logger.info(f"Script LinPEAS trouvé: {match}")
+                    return match
+    
+    # Si aucun script n'est trouvé, essayer de le télécharger directement
+    direct_url = "https://raw.githubusercontent.com/carlospolop/PEASS-ng/master/linPEAS/linpeas.sh"
+    direct_path = "/tmp/linpeas.sh"
+    
+    try:
+        logger.info(f"Téléchargement direct de LinPEAS depuis {direct_url}")
+        download_cmd = f"curl -s -L {direct_url} -o {direct_path} && chmod +x {direct_path}"
+        success, _ = run_command(download_cmd, timeout=30, silent=True)
+        if success and os.path.exists(direct_path):
+            logger.info(f"LinPEAS téléchargé avec succès: {direct_path}")
+            return direct_path
+    except Exception as e:
+        logger.error(f"Erreur lors du téléchargement direct de LinPEAS: {e}")
+    
+    logger.error("Impossible de trouver ou télécharger le script LinPEAS")
+    return None
+
 def ensure_all_tools_installed():
     """Vérifie et installe tous les outils nécessaires"""
     logger.info("Vérification et installation des outils de scan...")
@@ -208,6 +245,19 @@ def ensure_all_tools_installed():
                     skipped_tools.append('linpeas')
             else:
                 logger.info("LinPEAS déjà téléchargé")
+            
+            # Rechercher le script linpeas.sh
+            linpeas_path = find_linpeas_script()
+            if not linpeas_path:
+                logger.error("Script LinPEAS non trouvé après clonage")
+                if 'linpeas' in installed_tools:
+                    installed_tools.remove('linpeas')
+                    skipped_tools.append('linpeas')
+            else:
+                logger.info(f"Script LinPEAS trouvé: {linpeas_path}")
+                # Mettre à jour le chemin dans le dictionnaire SCAN_TOOLS
+                SCAN_TOOLS['linpeas']['required_files'][0]['path'] = linpeas_path
+                SCAN_TOOLS['linpeas']['required_files'][0]['fallback'] = linpeas_path
         except Exception as e:
             logger.error(f"Erreur lors de l'installation de LinPEAS: {e}")
             if 'linpeas' in installed_tools:
@@ -368,8 +418,17 @@ def run_tool_scan(tool_name, tool_info, target, output_dir, service_info=None):
     for req_file in tool_info.get('required_files', []):
         file_path = req_file['path']
         param_name = req_file['param']
+        dynamic_find = req_file.get('dynamic_find', False)
         
-        if not os.path.exists(file_path) and 'fallback' in req_file:
+        # Si l'outil est LinPEAS, rechercher dynamiquement le script
+        if tool_name == 'linpeas' and param_name == 'linpeas_path':
+            linpeas_path = find_linpeas_script()
+            if linpeas_path:
+                cmd_params[param_name] = linpeas_path
+                continue
+        
+        # Pour les autres outils ou si la recherche dynamique a échoué
+        if not os.path.exists(file_path) and 'fallback' in req_file and req_file['fallback']:
             fallback_path = req_file['fallback']
             if os.path.exists(fallback_path):
                 logger.debug(f"Utilisation du fichier fallback pour {param_name}: {fallback_path}")
