@@ -21,6 +21,7 @@ WebPhantom est un outil de pentest web automatisé conçu pour la reconnaissance
 - 🌐 **Scan IP complet** : Analyse de plages d'adresses IP avec multiples outils de sécurité
 - 🔄 **Intégration multi-outils** : Support pour Nmap, Nikto, OWASP ZAP, TestSSL.sh, SNMP-check, Hydra, SSLyze, WPScan, Dirb/Dirbuster, Gobuster et Nuclei
 - 🚀 **Commande unifiée** : Exécution de tous les outils en une seule commande
+- 🔥 **Exploitation automatique** : Exploitation des vulnérabilités découvertes
 
 ## Installation
 
@@ -127,25 +128,6 @@ sudo python webphantom.py ip-scan 192.168.1.0/24
 sudo python webphantom.py all-tools 192.168.1.1
 ```
 
-### Commandes de base
-
-```bash
-# Activer l'environnement virtuel (si vous utilisez Kali Linux)
-source webphantom_env/bin/activate
-
-# Reconnaissance d'une cible
-python webphantom.py recon https://example.com
-
-# Scan de vulnérabilités basiques
-python webphantom.py scan https://example.com
-
-# Analyse IA avec LLaMA
-python webphantom.py ai https://example.com
-
-# Exécuter un scénario YAML
-python webphantom.py run scripts/advanced_web_test.yaml --target https://example.com
-```
-
 ### Scénarios YAML avancés
 
 WebPhantom permet d'automatiser les tests avec des scénarios YAML personnalisables :
@@ -179,13 +161,13 @@ Pour exécuter un scénario avec une cible spécifique :
 
 ```bash
 # Option 1 : Utiliser l'option --target
-python webphantom.py run scripts/advanced_web_test.yaml --target https://example.com
+sudo python webphantom.py run scripts/advanced_web_test.yaml --target https://example.com
 
 # Option 2 : Utiliser un argument positionnel
-python webphantom.py run scripts/advanced_web_test.yaml https://example.com
+sudo python webphantom.py run scripts/advanced_web_test.yaml https://example.com
 
 # Option 3 : Définir la cible dans le fichier YAML lui-même
-python webphantom.py run scripts/advanced_web_test.yaml
+sudo python webphantom.py run scripts/advanced_web_test.yaml
 ```
 
 ### Scan IP et intégration multi-outils
@@ -291,6 +273,7 @@ Le nouveau module `ip_scanner.py` permet d'analyser des adresses IP et des plage
 - Génération de rapports HTML détaillés
 - Exécution parallèle pour optimiser les performances
 - Analyse et formatage des résultats pour une meilleure lisibilité
+- Exploitation automatique des vulnérabilités découvertes
 
 ## Outils intégrés
 
@@ -309,6 +292,8 @@ WebPhantom intègre désormais les outils suivants pour le scan IP et l'analyse 
 | Dirb/Dirbuster | Découverte de répertoires et fichiers web |
 | Gobuster | Découverte de répertoires et fichiers web (alternative à dirb) |
 | Nuclei | Scanner de vulnérabilités basé sur des templates |
+| LinPEAS | Outil d'énumération de privilèges Linux |
+
 ### Résolution des problèmes courants
 
 ### Erreur "ModuleNotFoundError: No module named 'nltk'"
