@@ -9,6 +9,7 @@ import logging
 import time
 import shutil
 import signal
+import threading
 from datetime import datetime
 
 # Configuration du logging
@@ -71,30 +72,42 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False, show_o
             # Timer pour le timeout
             start_time = time.time()
             
-            # Lire et afficher la sortie ligne par ligne en temps réel avec timeout
+            # Fonction pour surveiller le processus et le tuer si nécessaire
+            def monitor_process():
+                while process.poll() is None:
+                    if timeout and time.time() - start_time > timeout:
+                        # Terminer le processus et tout son groupe
+                        if hasattr(os, 'killpg'):
+                            try:
+                                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                                # Attendre un peu et forcer la fermeture si nécessaire
+                                time.sleep(0.5)
+                                if process.poll() is None:
+                                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                            except OSError:
+                                pass
+                        else:
+                            try:
+                                process.terminate()
+                                # Attendre un peu et forcer la fermeture si nécessaire
+                                time.sleep(0.5)
+                                if process.poll() is None:
+                                    process.kill()
+                            except OSError:
+                                pass
+                        
+                        if show_output:
+                            print(f"\n{'='*80}\n[TIMEOUT] La commande a dépassé le délai d'attente ({timeout}s)\n{'='*80}")
+                        return
+                    time.sleep(0.5)
+            
+            # Démarrer le thread de surveillance
+            monitor_thread = threading.Thread(target=monitor_process)
+            monitor_thread.daemon = True
+            monitor_thread.start()
+            
+            # Lire et afficher la sortie ligne par ligne en temps réel
             while process.poll() is None:
-                # Vérifier le timeout
-                if timeout and time.time() - start_time > timeout:
-                    # Terminer le processus et tout son groupe
-                    if hasattr(os, 'killpg'):
-                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                        # Attendre un peu et forcer la fermeture si nécessaire
-                        time.sleep(0.5)
-                        if process.poll() is None:
-                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                    else:
-                        process.terminate()
-                        # Attendre un peu et forcer la fermeture si nécessaire
-                        time.sleep(0.5)
-                        if process.poll() is None:
-                            process.kill()
-                    
-                    process.wait()
-                    if show_output:
-                        print(f"\n{'='*80}\n[TIMEOUT] La commande a dépassé le délai d'attente ({timeout}s)\n{'='*80}")
-                    return False, "Timeout expiré"
-                
-                # Lire la sortie
                 try:
                     line = process.stdout.readline()
                     if not line:
@@ -116,6 +129,11 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False, show_o
             
             process.stdout.close()
             return_code = process.wait()
+            
+            # Si le processus a été tué par timeout
+            if return_code == -9 or return_code == -15:
+                return False, "Timeout expiré"
+            
             success = return_code == 0 or ignore_errors
             output = ''.join(full_output)
             
@@ -139,15 +157,21 @@ def run_command(command, timeout=None, silent=False, ignore_errors=False, show_o
             except subprocess.TimeoutExpired:
                 # Terminer le processus et tout son groupe
                 if hasattr(os, 'killpg'):
-                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                    time.sleep(0.5)
-                    if process.poll() is None:
-                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        time.sleep(0.5)
+                        if process.poll() is None:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except OSError:
+                        pass
                 else:
-                    process.terminate()
-                    time.sleep(0.5)
-                    if process.poll() is None:
-                        process.kill()
+                    try:
+                        process.terminate()
+                        time.sleep(0.5)
+                        if process.poll() is None:
+                            process.kill()
+                    except OSError:
+                        pass
                 
                 process.wait()
                 if not silent:
@@ -179,6 +203,14 @@ def ensure_tool_installed(package_name):
     """
     # Vérifier si l'outil est déjà installé
     tool_name = package_name.split()[0]
+    
+    # Cas spécial pour git (utilisé pour LinPEAS)
+    if tool_name == 'git':
+        if shutil.which('git') is not None:
+            logger.debug("git est déjà installé.")
+            return True
+    
+    # Cas général
     if shutil.which(tool_name) is not None:
         logger.debug(f"{package_name} est déjà installé.")
         return True

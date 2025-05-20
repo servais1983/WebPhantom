@@ -8,6 +8,7 @@ import ipaddress
 import subprocess
 import shutil
 import logging
+import signal
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .utils import ensure_tool_installed, run_command, create_output_dir
@@ -16,6 +17,22 @@ from .utils import ensure_tool_installed, run_command, create_output_dir
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Ordre d'exécution optimisé des outils (du plus léger au plus lourd)
+TOOL_EXECUTION_ORDER = [
+    'nmap',           # Commence par nmap pour découvrir les services
+    'snmp-check',     # Léger et rapide
+    'sslyze',         # Analyse SSL/TLS basique
+    'testssl',        # Analyse SSL/TLS plus approfondie
+    'nikto',          # Scanner web basique
+    'owasp-zap',      # Scanner web avancé
+    'dirb',           # Découverte de répertoires
+    'gobuster',       # Alternative à dirb
+    'wpscan',         # Spécifique à WordPress
+    'hydra',          # Brute force (potentiellement long)
+    'nuclei',         # Détection de vulnérabilités (peut être long)
+    'linpeas'         # Énumération de privilèges (peut être long)
+]
+
 # Liste des outils à utiliser pour le scan
 SCAN_TOOLS = {
     'nmap': {
@@ -23,14 +40,16 @@ SCAN_TOOLS = {
         'command': 'nmap -sV -sC --script=vuln -p- -T4 -oX {output_file} {target}',
         'description': 'Scanner réseau avancé pour la découverte de services et la détection de versions',
         'parse_function': 'parse_nmap_output',
-        'timeout': 600  # 10 minutes
+        'timeout': 600,  # 10 minutes
+        'critical': True  # Outil critique dont les résultats sont importants pour d'autres outils
     },
     'nikto': {
         'package': 'nikto',
         'command': 'nikto -host {target} -output {output_file} -Format xml -timeout 60',
         'description': 'Scanner de vulnérabilités web',
         'parse_function': 'parse_nikto_output',
-        'timeout': 300  # 5 minutes
+        'timeout': 300,  # 5 minutes
+        'requires_http': True  # Nécessite un serveur HTTP
     },
     'testssl': {
         'package': 'testssl.sh',
@@ -38,7 +57,8 @@ SCAN_TOOLS = {
         'description': 'Analyse de la configuration SSL/TLS',
         'parse_function': 'parse_testssl_output',
         'timeout': 300,  # 5 minutes
-        'pre_command': 'mkdir -p /usr/local/bin/etc/ && cp -r /usr/share/testssl.sh/etc/* /usr/local/bin/etc/ 2>/dev/null || echo "TestSSL config files not found"'
+        'pre_command': 'mkdir -p /usr/local/bin/etc/ && cp -r /usr/share/testssl.sh/etc/* /usr/local/bin/etc/ 2>/dev/null || echo "TestSSL config files not found"',
+        'requires_https': True  # Nécessite HTTPS
     },
     'snmp-check': {
         'package': 'snmp-check',
@@ -49,28 +69,32 @@ SCAN_TOOLS = {
     },
     'hydra': {
         'package': 'hydra',
-        'command': 'hydra -L {wordlist_users} -P {wordlist_passwords} -o {output_file} -f {target} http-get / -t 2',
+        'command': 'hydra -L {wordlist_users} -P {wordlist_passwords} -o {output_file} -f {target} http-get / -t 1',
         'description': 'Outil de brute force pour les services réseau',
         'parse_function': 'parse_hydra_output',
         'timeout': 120,  # 2 minutes
         'required_files': [
             {'path': '/usr/share/wordlists/metasploit/common_users.txt', 'fallback': '/usr/share/wordlists/seclists/Usernames/top-usernames-shortlist.txt', 'param': 'wordlist_users'},
             {'path': '/usr/share/wordlists/metasploit/common_passwords.txt', 'fallback': '/usr/share/wordlists/seclists/Passwords/Common-Credentials/10-million-password-list-top-100.txt', 'param': 'wordlist_passwords'}
-        ]
+        ],
+        'requires_http': True  # Nécessite un serveur HTTP
     },
     'sslyze': {
         'package': 'sslyze',
         'command': 'sslyze --json_out {output_file} {target} 2>/dev/null',
         'description': 'Analyse avancée des configurations SSL/TLS',
         'parse_function': 'parse_sslyze_output',
-        'timeout': 120  # 2 minutes
+        'timeout': 120,  # 2 minutes
+        'requires_https': True  # Nécessite HTTPS
     },
     'wpscan': {
         'package': 'wpscan',
         'command': 'wpscan --url http://{target} --format json --output {output_file} --no-banner --force --detection-mode aggressive',
         'description': 'Scanner de vulnérabilités WordPress',
         'parse_function': 'parse_wpscan_output',
-        'timeout': 180  # 3 minutes
+        'timeout': 180,  # 3 minutes
+        'requires_http': True,  # Nécessite un serveur HTTP
+        'requires_wordpress': True  # Nécessite WordPress
     },
     'dirb': {
         'package': 'dirb',
@@ -80,7 +104,8 @@ SCAN_TOOLS = {
         'timeout': 300,  # 5 minutes
         'required_files': [
             {'path': '/usr/share/dirb/wordlists/common.txt', 'fallback': '/usr/share/wordlists/dirb/common.txt', 'param': 'wordlist'}
-        ]
+        ],
+        'requires_http': True  # Nécessite un serveur HTTP
     },
     'gobuster': {
         'package': 'gobuster',
@@ -90,14 +115,28 @@ SCAN_TOOLS = {
         'timeout': 300,  # 5 minutes
         'required_files': [
             {'path': '/usr/share/wordlists/dirb/common.txt', 'fallback': '/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt', 'param': 'wordlist'}
-        ]
+        ],
+        'requires_http': True  # Nécessite un serveur HTTP
     },
     'nuclei': {
         'package': 'nuclei',
         'command': 'nuclei -u http://{target} -o {output_file} -silent -mc 200,201,202,203,204,301,302,307,401,403,405,500 || echo "Nuclei scan completed with warnings"',
         'description': 'Scanner de vulnérabilités Nuclei',
         'parse_function': 'parse_nuclei_output',
-        'timeout': 300  # 5 minutes
+        'timeout': 300,  # 5 minutes
+        'requires_http': True  # Nécessite un serveur HTTP
+    },
+    'linpeas': {
+        'package': 'git',  # LinPEAS est installé via git clone
+        'command': 'bash {linpeas_path} -a -o {output_file} -t {target} || echo "LinPEAS scan completed with warnings"',
+        'description': 'Outil d\'énumération de privilèges Linux',
+        'parse_function': 'parse_linpeas_output',
+        'timeout': 600,  # 10 minutes
+        'pre_command': 'if [ ! -d "/tmp/linpeas" ]; then git clone https://github.com/carlospolop/PEASS-ng.git /tmp/linpeas; fi',
+        'required_files': [
+            {'path': '/tmp/linpeas/linPEAS/linpeas.sh', 'fallback': '/tmp/linpeas/linPEAS/linpeas.sh', 'param': 'linpeas_path'}
+        ],
+        'ssh_required': True  # Nécessite un accès SSH
     }
 }
 
@@ -108,7 +147,8 @@ SPECIAL_TOOLS = {
         'command': 'python3 -c "from zapv2 import ZAPv2; zap = ZAPv2(); print(\'Scan ZAP démarré\'); zap.urlopen(\'http://{target}\'); zap.spider.scan(\'http://{target}\'); print(\'Scan ZAP terminé\'); with open(\'{output_file}\', \'w\') as f: f.write(str(zap.core.alerts()))" || echo "ZAP scan skipped - install python3-zapv2"',
         'description': 'Scanner de vulnérabilités web OWASP ZAP',
         'parse_function': 'parse_zap_output',
-        'timeout': 300  # 5 minutes
+        'timeout': 300,  # 5 minutes
+        'requires_http': True  # Nécessite un serveur HTTP
     }
 }
 
@@ -158,6 +198,26 @@ def ensure_all_tools_installed():
         else:
             skipped_tools.append(tool_name)
     
+    # Installation spéciale pour LinPEAS
+    if 'linpeas' in installed_tools:
+        try:
+            # Vérifier si LinPEAS est déjà cloné
+            if not os.path.exists('/tmp/linpeas'):
+                logger.info("Téléchargement de LinPEAS...")
+                clone_cmd = "git clone https://github.com/carlospolop/PEASS-ng.git /tmp/linpeas"
+                success, output = run_command(clone_cmd, timeout=60, silent=False, show_output=True)
+                if not success:
+                    logger.error(f"Échec du téléchargement de LinPEAS: {output}")
+                    installed_tools.remove('linpeas')
+                    skipped_tools.append('linpeas')
+            else:
+                logger.info("LinPEAS déjà téléchargé")
+        except Exception as e:
+            logger.error(f"Erreur lors de l'installation de LinPEAS: {e}")
+            if 'linpeas' in installed_tools:
+                installed_tools.remove('linpeas')
+                skipped_tools.append('linpeas')
+    
     if installed_tools:
         logger.info(f"Outils disponibles: {', '.join(installed_tools)}")
     if skipped_tools:
@@ -165,9 +225,114 @@ def ensure_all_tools_installed():
     
     return installed_tools
 
-def run_tool_scan(tool_name, tool_info, target, output_dir):
-    """Exécute un scan avec un outil spécifique"""
+def check_service_availability(target, service_type):
+    """
+    Vérifie si un service spécifique est disponible sur la cible
+    
+    Args:
+        target (str): Adresse IP ou nom d'hôte cible
+        service_type (str): Type de service à vérifier ('http', 'https', 'wordpress', 'ssh', etc.)
+        
+    Returns:
+        bool: True si le service est disponible, False sinon
+    """
+    if service_type == 'http':
+        cmd = f"curl -s --connect-timeout 5 -o /dev/null -w '%{{http_code}}' http://{target}/"
+        success, output = run_command(cmd, timeout=10, silent=True, show_output=False)
+        if success and output.strip() and int(output.strip()) < 500:
+            return True
+    elif service_type == 'https':
+        cmd = f"curl -s --connect-timeout 5 -o /dev/null -w '%{{http_code}}' -k https://{target}/"
+        success, output = run_command(cmd, timeout=10, silent=True, show_output=False)
+        if success and output.strip() and int(output.strip()) < 500:
+            return True
+    elif service_type == 'wordpress':
+        # Vérifier si WordPress est installé
+        cmd = f"curl -s --connect-timeout 5 http://{target}/wp-login.php"
+        success, output = run_command(cmd, timeout=10, silent=True, show_output=False)
+        if success and 'WordPress' in output:
+            return True
+    elif service_type == 'ssh':
+        # Vérifier si SSH est disponible
+        cmd = f"nc -z -w 5 {target} 22"
+        success, output = run_command(cmd, timeout=10, silent=True, show_output=False)
+        return success
+    
+    return False
+
+def run_tool_scan(tool_name, tool_info, target, output_dir, service_info=None):
+    """
+    Exécute un scan avec un outil spécifique
+    
+    Args:
+        tool_name (str): Nom de l'outil
+        tool_info (dict): Informations sur l'outil
+        target (str): Adresse IP ou nom d'hôte cible
+        output_dir (str): Répertoire de sortie
+        service_info (dict, optional): Informations sur les services disponibles
+        
+    Returns:
+        dict: Résultats du scan
+    """
     timestamp = int(time.time())
+    
+    # Vérifier les prérequis de service si service_info est fourni
+    if service_info:
+        if tool_info.get('requires_http', False) and not service_info.get('http', False):
+            logger.info(f"Outil {tool_name} ignoré: service HTTP non disponible sur {target}")
+            return {
+                'tool': tool_name,
+                'target': target,
+                'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+                'success': False,
+                'output_file': None,
+                'raw_output': f"Service HTTP non disponible sur {target}",
+                'parsed_results': None,
+                'skipped': True,
+                'description': tool_info.get('description', 'Outil de scan')
+            }
+        
+        if tool_info.get('requires_https', False) and not service_info.get('https', False):
+            logger.info(f"Outil {tool_name} ignoré: service HTTPS non disponible sur {target}")
+            return {
+                'tool': tool_name,
+                'target': target,
+                'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+                'success': False,
+                'output_file': None,
+                'raw_output': f"Service HTTPS non disponible sur {target}",
+                'parsed_results': None,
+                'skipped': True,
+                'description': tool_info.get('description', 'Outil de scan')
+            }
+        
+        if tool_info.get('requires_wordpress', False) and not service_info.get('wordpress', False):
+            logger.info(f"Outil {tool_name} ignoré: WordPress non détecté sur {target}")
+            return {
+                'tool': tool_name,
+                'target': target,
+                'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+                'success': False,
+                'output_file': None,
+                'raw_output': f"WordPress non détecté sur {target}",
+                'parsed_results': None,
+                'skipped': True,
+                'description': tool_info.get('description', 'Outil de scan')
+            }
+        
+        if tool_info.get('ssh_required', False) and not service_info.get('ssh', False):
+            logger.info(f"Outil {tool_name} ignoré: service SSH non disponible sur {target}")
+            return {
+                'tool': tool_name,
+                'target': target,
+                'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+                'success': False,
+                'output_file': None,
+                'raw_output': f"Service SSH non disponible sur {target}",
+                'parsed_results': None,
+                'skipped': True,
+                'description': tool_info.get('description', 'Outil de scan')
+            }
     
     # Vérifier si l'outil principal est disponible
     main_cmd = tool_info['package'].split()[0]
@@ -196,7 +361,7 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     elif 'html' in tool_info['command'].lower():
         ext = '.html'
     else:
-        ext = '.xml'
+        ext = '.txt'  # Par défaut, utiliser .txt pour les sorties textuelles
     
     output_file = os.path.join(output_dir, f"{tool_name}_{target.replace('/', '_')}_{timestamp}{ext}")
     
@@ -255,20 +420,6 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     logger.info(f"Exécution de {tool_name} sur {target}...")
     print(f"\n{'#'*80}\n# DÉBUT DU SCAN: {tool_name.upper()} sur {target}\n{'#'*80}")
     
-    # Vérifier la connectivité réseau avant d'exécuter l'outil
-    ping_success = False
-    try:
-        # Tenter un ping simple pour vérifier si la cible est accessible
-        ping_cmd = f"ping -c 1 -W 2 {target}"
-        ping_success, ping_output = run_command(ping_cmd, timeout=5, silent=True, show_output=False)
-        
-        if ping_success:
-            logger.info(f"Connectivité réseau vers {target} confirmée")
-        else:
-            logger.warning(f"Impossible de joindre {target} par ping, tentative de scan quand même...")
-    except Exception as e:
-        logger.warning(f"Erreur lors du test de connectivité vers {target}: {e}")
-    
     # Exécuter la commande de pré-exécution si elle existe
     if 'pre_command' in tool_info and tool_info['pre_command']:
         try:
@@ -277,7 +428,7 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
                 pre_cmd = f"sudo {pre_cmd}"
             
             logger.debug(f"Exécution de la commande de pré-exécution pour {tool_name}")
-            pre_success, pre_output = run_command(pre_cmd, timeout=30, silent=True, show_output=False)
+            pre_success, pre_output = run_command(pre_cmd, timeout=60, silent=True, show_output=False)
             if not pre_success:
                 logger.warning(f"La commande de pré-exécution pour {tool_name} a échoué: {pre_output}")
         except Exception as e:
@@ -287,24 +438,27 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     if not command.startswith('sudo '):
         command = f"sudo {command}"
     
-    # Exécuter la commande même si le ping échoue (certains hôtes bloquent les pings)
-    # Utiliser un timeout plus strict pour éviter les blocages
-    actual_timeout = min(tool_info.get('timeout', 300), 300)  # Maximum 5 minutes par outil
-    success, output = run_command(command, timeout=actual_timeout, silent=False, show_output=True)
+    # Exécuter la commande avec un timeout strict pour éviter les blocages
+    actual_timeout = min(tool_info.get('timeout', 300), 600)  # Maximum 10 minutes par outil
+    success, output = run_command(command, timeout=actual_timeout, silent=False, show_output=True, ignore_errors=True)
     print(f"\n{'#'*80}\n# FIN DU SCAN: {tool_name.upper()} sur {target}\n{'#'*80}")
+    
+    # Considérer le scan comme réussi même avec des avertissements
+    if "completed with warnings" in output:
+        success = True
     
     result = {
         'tool': tool_name,
         'target': target,
         'timestamp': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
         'success': success,
-        'output_file': output_file if success and os.path.exists(output_file) else None,
+        'output_file': output_file if os.path.exists(output_file) else None,
         'raw_output': output,  # Toujours stocker la sortie brute pour le rapport HTML
         'parsed_results': None,
         'description': tool_info.get('description', 'Outil de scan')
     }
     
-    # Analyser les résultats si le scan a réussi
+    # Analyser les résultats si le scan a réussi et le fichier existe
     if success and os.path.exists(output_file):
         parse_function_name = tool_info.get('parse_function')
         if parse_function_name and parse_function_name in globals():
@@ -315,7 +469,49 @@ def run_tool_scan(tool_name, tool_info, target, output_dir):
     
     return result
 
-def scan_ip(target, output_dir=None, tools=None, max_workers=5):
+def detect_available_services(target):
+    """
+    Détecte les services disponibles sur la cible
+    
+    Args:
+        target (str): Adresse IP ou nom d'hôte cible
+        
+    Returns:
+        dict: Informations sur les services disponibles
+    """
+    logger.info(f"Détection des services disponibles sur {target}...")
+    
+    services = {
+        'http': False,
+        'https': False,
+        'wordpress': False,
+        'ssh': False
+    }
+    
+    # Vérifier HTTP
+    services['http'] = check_service_availability(target, 'http')
+    if services['http']:
+        logger.info(f"Service HTTP détecté sur {target}")
+    
+    # Vérifier HTTPS
+    services['https'] = check_service_availability(target, 'https')
+    if services['https']:
+        logger.info(f"Service HTTPS détecté sur {target}")
+    
+    # Vérifier WordPress (seulement si HTTP est disponible)
+    if services['http']:
+        services['wordpress'] = check_service_availability(target, 'wordpress')
+        if services['wordpress']:
+            logger.info(f"WordPress détecté sur {target}")
+    
+    # Vérifier SSH
+    services['ssh'] = check_service_availability(target, 'ssh')
+    if services['ssh']:
+        logger.info(f"Service SSH détecté sur {target}")
+    
+    return services
+
+def scan_ip(target, output_dir=None, tools=None, sequential=True):
     """
     Scanne une adresse IP ou une plage d'adresses IP avec les outils spécifiés
     
@@ -323,7 +519,7 @@ def scan_ip(target, output_dir=None, tools=None, max_workers=5):
         target (str): Adresse IP ou plage d'adresses IP à scanner
         output_dir (str, optional): Répertoire de sortie pour les résultats
         tools (list, optional): Liste des outils à utiliser pour le scan
-        max_workers (int, optional): Nombre maximum de workers pour les scans parallèles
+        sequential (bool, optional): Si True, exécute les outils séquentiellement
         
     Returns:
         dict: Résultats du scan
@@ -351,6 +547,9 @@ def scan_ip(target, output_dir=None, tools=None, max_workers=5):
     # Filtrer les outils demandés pour ne garder que ceux disponibles
     tools_to_use = [tool for tool in tools if tool in available_tools]
     
+    # Trier les outils selon l'ordre d'exécution optimisé
+    tools_to_use.sort(key=lambda x: TOOL_EXECUTION_ORDER.index(x) if x in TOOL_EXECUTION_ORDER else 999)
+    
     if not tools_to_use:
         logger.warning("Aucun outil disponible pour le scan")
         return {
@@ -374,91 +573,78 @@ def scan_ip(target, output_dir=None, tools=None, max_workers=5):
         'results': []
     }
     
-    # Scanner chaque cible avec chaque outil
+    # Scanner chaque cible
     for target_ip in targets:
         logger.info(f"Scan de l'adresse IP: {target_ip}")
         
-        # Utiliser ThreadPoolExecutor pour exécuter les scans en parallèle
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Soumettre les tâches
-            future_to_tool = {}
+        # Détecter les services disponibles
+        service_info = detect_available_services(target_ip)
+        
+        if sequential:
+            # Exécution séquentielle des outils (plus stable)
             for tool_name in tools_to_use:
-                if tool_name in SCAN_TOOLS:
-                    tool_info = SCAN_TOOLS[tool_name]
-                elif tool_name in SPECIAL_TOOLS:
-                    tool_info = SPECIAL_TOOLS[tool_name]
-                else:
-                    continue
-                
-                future = executor.submit(run_tool_scan, tool_name, tool_info, target_ip, output_dir)
-                future_to_tool[future] = tool_name
-            
-            # Récupérer les résultats au fur et à mesure qu'ils sont disponibles
-            # Ajouter un timeout global pour éviter les blocages
-            global_timeout = 1800  # 30 minutes maximum pour tous les scans
-            start_time = time.time()
-            
-            # Utiliser une liste pour suivre les futures terminés
-            completed_futures = []
-            
-            # Boucle principale avec timeout global
-            while len(completed_futures) < len(future_to_tool) and time.time() - start_time < global_timeout:
                 try:
-                    # Attendre le prochain future avec un timeout court pour pouvoir vérifier le timeout global
-                    for future in as_completed(
-                        [f for f in future_to_tool.keys() if f not in completed_futures], 
-                        timeout=10
-                    ):
-                        if future not in completed_futures:
-                            completed_futures.append(future)
-                            tool_name = future_to_tool[future]
-                            try:
-                                result = future.result()
-                                results['results'].append(result)
-                            except Exception as e:
-                                logger.error(f"Erreur lors du scan avec {tool_name}: {e}")
-                                results['results'].append({
-                                    'tool': tool_name,
-                                    'target': target_ip,
-                                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                    'success': False,
-                                    'output_file': None,
-                                    'raw_output': f"Erreur: {e}",
-                                    'parsed_results': None,
-                                    'skipped': True,
-                                    'description': "Erreur lors de l'exécution"
-                                })
-                except Exception as e:
-                    # Gérer les erreurs de timeout ou autres exceptions dans as_completed
-                    logger.warning(f"Erreur lors de l'attente des résultats: {e}")
-                    # Continuer la boucle pour vérifier à nouveau les futures
-                    continue
-            
-            # Gérer les futures qui n'ont pas été complétés (timeout)
-            for future, tool_name in future_to_tool.items():
-                if future not in completed_futures:
-                    # Annuler le future s'il est toujours en cours
-                    future.cancel()
-                    logger.warning(f"Timeout global atteint pour {tool_name}, scan annulé")
-                    
-                    # Récupérer l'info de l'outil pour la description
-                    tool_description = "Outil de scan"
                     if tool_name in SCAN_TOOLS:
-                        tool_description = SCAN_TOOLS[tool_name].get('description', tool_description)
+                        tool_info = SCAN_TOOLS[tool_name]
                     elif tool_name in SPECIAL_TOOLS:
-                        tool_description = SPECIAL_TOOLS[tool_name].get('description', tool_description)
+                        tool_info = SPECIAL_TOOLS[tool_name]
+                    else:
+                        continue
                     
+                    # Exécuter le scan avec l'outil
+                    result = run_tool_scan(tool_name, tool_info, target_ip, output_dir, service_info)
+                    results['results'].append(result)
+                    
+                    # Pause entre les scans pour éviter la surcharge
+                    time.sleep(2)
+                except Exception as e:
+                    logger.error(f"Erreur lors du scan avec {tool_name}: {e}")
                     results['results'].append({
                         'tool': tool_name,
                         'target': target_ip,
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'success': False,
                         'output_file': None,
-                        'raw_output': "Timeout global atteint, scan annulé",
+                        'raw_output': f"Erreur: {e}",
                         'parsed_results': None,
                         'skipped': True,
-                        'description': tool_description
+                        'description': "Erreur lors de l'exécution"
                     })
+        else:
+            # Exécution parallèle des outils (plus rapide mais moins stable)
+            with ThreadPoolExecutor(max_workers=2) as executor:  # Limiter à 2 workers pour éviter la surcharge
+                # Soumettre les tâches
+                future_to_tool = {}
+                for tool_name in tools_to_use:
+                    if tool_name in SCAN_TOOLS:
+                        tool_info = SCAN_TOOLS[tool_name]
+                    elif tool_name in SPECIAL_TOOLS:
+                        tool_info = SPECIAL_TOOLS[tool_name]
+                    else:
+                        continue
+                    
+                    future = executor.submit(run_tool_scan, tool_name, tool_info, target_ip, output_dir, service_info)
+                    future_to_tool[future] = tool_name
+                
+                # Récupérer les résultats au fur et à mesure qu'ils sont disponibles
+                for future in as_completed(future_to_tool):
+                    tool_name = future_to_tool[future]
+                    try:
+                        result = future.result()
+                        results['results'].append(result)
+                    except Exception as e:
+                        logger.error(f"Erreur lors du scan avec {tool_name}: {e}")
+                        results['results'].append({
+                            'tool': tool_name,
+                            'target': target_ip,
+                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'success': False,
+                            'output_file': None,
+                            'raw_output': f"Erreur: {e}",
+                            'parsed_results': None,
+                            'skipped': True,
+                            'description': "Erreur lors de l'exécution"
+                        })
     
     # Générer le rapport HTML
     report_file = generate_ip_scan_report(results, output_dir)
@@ -724,7 +910,7 @@ def run_all_tools(target, output_dir=None):
         dict: Résultats du scan
     """
     logger.info(f"Exécution de tous les outils de scan sur la cible: {target}")
-    return scan_ip(target, output_dir, tools=list(SCAN_TOOLS.keys()) + list(SPECIAL_TOOLS.keys()))
+    return scan_ip(target, output_dir, tools=list(SCAN_TOOLS.keys()) + list(SPECIAL_TOOLS.keys()), sequential=True)
 
 # Fonctions d'analyse des résultats pour chaque outil
 def parse_nmap_output(output_file):
@@ -779,5 +965,10 @@ def parse_nuclei_output(output_file):
 
 def parse_zap_output(output_file):
     """Analyse les résultats de OWASP ZAP"""
+    # Implémentation à venir
+    return None
+
+def parse_linpeas_output(output_file):
+    """Analyse les résultats de LinPEAS"""
     # Implémentation à venir
     return None
