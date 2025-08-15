@@ -9,12 +9,37 @@ import re
 import json
 import random
 import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urljoin
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+@dataclass
+class VulnerabilityResult:
+    """
+    Représente une vulnérabilité détectée et fournit une conversion en dict.
+    Compatible avec les attentes des tests unitaires.
+    """
+    vuln_type: str
+    url: str
+    details: str
+    severity: str
+    evidence: Optional[Dict[str, Any]] = None
+    remediation: Optional[List[str]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.vuln_type,
+            "url": self.url,
+            "details": self.details,
+            "severity": self.severity,
+            "evidence": self.evidence if self.evidence is not None else {},
+            "remediation": self.remediation if self.remediation is not None else [],
+        }
 
 def run(url, options=None):
     """
@@ -36,7 +61,9 @@ def run(url, options=None):
         "scan_time": time.strftime("%Y-%m-%d %H:%M:%S")
     }
     
+    # Backward compatibility for tests expecting French substring
     print(f"[*] Scan avancé de vulnérabilités sur {url}")
+    print(f"[*] Advanced vulnerability scan on {url}")
     
     # Déterminer quels scans effectuer
     scan_csrf = options.get("scan_csrf", True)
@@ -74,11 +101,11 @@ def run(url, options=None):
     # Afficher un résumé des résultats
     vuln_count = len(results["vulnerabilities"])
     if vuln_count > 0:
-        print(f"[+] {vuln_count} vulnérabilité(s) avancée(s) détectée(s)")
+        print(f"[+] {vuln_count} advanced vulnerability(ies) detected")
         for vuln in results["vulnerabilities"]:
             print(f"  - {vuln['type']}: {vuln['description']}")
     else:
-        print("[-] Aucune vulnérabilité avancée détectée")
+        print("[-] No advanced vulnerabilities detected")
     
     return results
 
@@ -92,7 +119,7 @@ def scan_csrf_vulnerability(url):
     Returns:
         dict: Résultat du scan CSRF
     """
-    logger.info(f"Scan CSRF sur {url}")
+    logger.info(f"CSRF scan on {url}")
     try:
         # Récupérer la page
         response = requests.get(url)
@@ -107,14 +134,14 @@ def scan_csrf_vulnerability(url):
         for form in forms:
             csrf_token = form.find('input', attrs={'name': re.compile('csrf|token', re.I)})
             if not csrf_token:
-                # Formulaire sans protection CSRF détecté
+                # Form without CSRF protection detected
                 action = form.get('action', '')
                 method = form.get('method', 'get').upper()
                 
                 return {
                     "type": "CSRF",
                     "severity": "Medium",
-                    "description": f"Formulaire sans protection CSRF détecté ({method} {action})",
+                    "description": f"Form without CSRF protection detected ({method} {action})",
                     "evidence": str(form)[:200] + "..." if len(str(form)) > 200 else str(form),
                     "location": urljoin(url, action) if action else url
                 }
@@ -134,7 +161,7 @@ def scan_ssrf_vulnerability(url):
     Returns:
         dict: Résultat du scan SSRF
     """
-    logger.info(f"Scan SSRF sur {url}")
+    logger.info(f"SSRF scan on {url}")
     try:
         # Analyser l'URL pour trouver des paramètres potentiellement vulnérables
         parsed_url = urlparse(url)
@@ -152,7 +179,7 @@ def scan_ssrf_vulnerability(url):
         return {
             "type": "SSRF",
             "severity": "High",
-            "description": f"Paramètre(s) potentiellement vulnérable(s) aux attaques SSRF: {', '.join(ssrf_params)}",
+            "description": f"Potential SSRF parameter(s): {', '.join(ssrf_params)}",
             "evidence": url,
             "location": url
         }
@@ -170,7 +197,7 @@ def scan_xxe_vulnerability(url):
     Returns:
         dict: Résultat du scan XXE
     """
-    logger.info(f"Scan XXE sur {url}")
+    logger.info(f"XXE scan on {url}")
     try:
         # Récupérer la page
         response = requests.get(url)
@@ -181,7 +208,7 @@ def scan_xxe_vulnerability(url):
             return {
                 "type": "XXE",
                 "severity": "High",
-                "description": "Endpoint acceptant du XML détecté, potentiellement vulnérable aux attaques XXE",
+                "description": "Endpoint accepting XML detected; potentially vulnerable to XXE",
                 "evidence": f"Content-Type: {content_type}",
                 "location": url
             }
@@ -193,7 +220,7 @@ def scan_xxe_vulnerability(url):
             return {
                 "type": "XXE",
                 "severity": "High",
-                "description": "Formulaire acceptant du XML détecté, potentiellement vulnérable aux attaques XXE",
+                "description": "Form accepting XML detected; potentially vulnerable to XXE",
                 "evidence": str(forms[0])[:200] + "..." if len(str(forms[0])) > 200 else str(forms[0]),
                 "location": url
             }
@@ -213,7 +240,7 @@ def scan_idor_vulnerability(url):
     Returns:
         dict: Résultat du scan IDOR
     """
-    logger.info(f"Scan IDOR sur {url}")
+    logger.info(f"IDOR scan on {url}")
     try:
         # Analyser l'URL pour trouver des identifiants numériques
         parsed_url = urlparse(url)
@@ -226,7 +253,7 @@ def scan_idor_vulnerability(url):
                 return {
                     "type": "IDOR",
                     "severity": "High",
-                    "description": f"Identifiant numérique {segment} détecté dans l'URL, potentiellement vulnérable aux attaques IDOR",
+                    "description": f"Numeric identifier {segment} found in URL; potential IDOR",
                     "evidence": url,
                     "location": url
                 }
@@ -237,7 +264,7 @@ def scan_idor_vulnerability(url):
                 return {
                     "type": "IDOR",
                     "severity": "High",
-                    "description": f"Paramètre {param} avec valeur numérique détecté, potentiellement vulnérable aux attaques IDOR",
+                    "description": f"Parameter {param} with numeric value found; potential IDOR",
                     "evidence": url,
                     "location": url
                 }
@@ -257,7 +284,7 @@ def scan_ssti_vulnerability(url):
     Returns:
         dict: Résultat du scan SSTI
     """
-    logger.info(f"Scan SSTI sur {url}")
+    logger.info(f"SSTI scan on {url}")
     try:
         # Générer un payload de test pour SSTI
         test_value = f"${{7*7}}"
@@ -281,7 +308,7 @@ def scan_ssti_vulnerability(url):
             return {
                 "type": "SSTI",
                 "severity": "Critical",
-                "description": f"Potentielle vulnérabilité d'injection de template (SSTI) détectée dans le paramètre {param}",
+                "description": f"Potential Server-Side Template Injection detected in parameter {param}",
                 "evidence": test_url,
                 "location": url
             }

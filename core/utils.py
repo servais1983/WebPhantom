@@ -298,7 +298,8 @@ def run_script_yaml(script_file, target_url=None):
         
         for step in script.get('steps', []):
             step_type = step.get('type')
-            options = step.get('options', {})
+            # Accepte 'options' et 'params' (compatibilité YAML avancés)
+            options = step.get('options') or step.get('params') or {}
             
             logger.info(f"Exécution de l'étape: {step_type}")
             
@@ -314,6 +315,15 @@ def run_script_yaml(script_file, target_url=None):
             elif step_type == 'ai':
                 from core import ai_analyzer
                 ai_analyzer.run(target, options)
+            elif step_type == 'payload':
+                from core import payload_generator
+                payload_generator.run(target, options)
+            elif step_type == 'report':
+                from core import report_generator
+                report_generator.run(target, options)
+            elif step_type == 'auth':
+                from core import auth
+                auth.run(target, options)
             elif step_type == 'wait':
                 seconds = options.get('seconds', 1)
                 logger.info(f"Attente de {seconds} secondes...")

@@ -1,6 +1,6 @@
 """
-Module de gestion des utilisateurs et d'authentification pour WebPhantom.
-Supporte Basic Auth, Forms et JWT.
+User and authentication management for WebPhantom.
+Supports Basic Auth, form auth and JWT.
 """
 
 import os
@@ -12,17 +12,18 @@ import requests
 from urllib.parse import urlparse
 import base64
 import logging
+from typing import Optional
 
-# Configuration du logging
+# Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Répertoire pour stocker les données utilisateurs
+# Directory to store user data
 USER_DIR = os.path.expanduser("~/.webphantom/users")
 os.makedirs(USER_DIR, exist_ok=True)
 USER_DB = os.path.join(USER_DIR, "users.json")
 
-# Clé secrète pour JWT
+# JWT secret
 JWT_SECRET = os.environ.get("WEBPHANTOM_JWT_SECRET", "webphantom_secret_key")
 
 # Initialiser la base de données utilisateurs si elle n'existe pas
@@ -32,35 +33,35 @@ if not os.path.exists(USER_DB):
 
 def register(username, email, role="user", password=None):
     """
-    Enregistre un nouvel utilisateur.
+    Register a new user.
     
     Args:
-        username (str): Nom d'utilisateur
-        email (str): Adresse email
-        role (str, optional): Rôle de l'utilisateur (admin, user). Par défaut "user".
-        password (str, optional): Mot de passe. Si non fourni, un mot de passe aléatoire est généré.
+        username (str): Username
+        email (str): Email
+        role (str, optional): User role (admin, user). Defaults to "user".
+        password (str, optional): Password. If not provided, a random one is generated.
         
     Returns:
-        dict: Informations sur l'utilisateur créé
+        dict: Created user info
     """
     # Charger la base de données utilisateurs
     with open(USER_DB, "r") as f:
         db = json.load(f)
     
-    # Vérifier si l'utilisateur existe déjà
+    # Check if user already exists
     for user in db["users"]:
         if user["username"] == username or user["email"] == email:
             logger.warning(f"L'utilisateur {username} ou l'email {email} existe déjà")
             return {"success": False, "error": "L'utilisateur ou l'email existe déjà"}
     
-    # Générer un mot de passe aléatoire si non fourni
+    # Generate random password if not provided
     if not password:
         import random
         import string
         password = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(12))
         logger.info(f"Mot de passe généré pour {username}: {password}")
     
-    # Hacher le mot de passe
+    # Hash the password
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     
     # Créer l'utilisateur
@@ -72,14 +73,14 @@ def register(username, email, role="user", password=None):
         "created_at": datetime.datetime.now().isoformat()
     }
     
-    # Ajouter l'utilisateur à la base de données
+    # Add user to DB
     db["users"].append(user)
     
     # Sauvegarder la base de données
     with open(USER_DB, "w") as f:
         json.dump(db, f, indent=2)
     
-    logger.info(f"Utilisateur {username} enregistré avec succès")
+    logger.info(f"User {username} registered successfully")
     return {
         "success": True, 
         "username": username, 
@@ -90,16 +91,16 @@ def register(username, email, role="user", password=None):
 
 def authenticate(auth_type, username, password, url=None):
     """
-    Authentifie un utilisateur avec différentes méthodes.
+    Authenticate with different methods.
     
     Args:
-        auth_type (str): Type d'authentification (basic, form, jwt)
-        username (str): Nom d'utilisateur
-        password (str): Mot de passe
-        url (str, optional): URL pour l'authentification par formulaire
+        auth_type (str): Auth type (basic, form, jwt)
+        username (str): Username
+        password (str): Password
+        url (str, optional): URL for form-based auth
         
     Returns:
-        dict: Résultat de l'authentification et token JWT si applicable
+        dict: Result and JWT token if applicable
     """
     if auth_type == "basic":
         return basic_auth(username, password, url)
@@ -113,15 +114,7 @@ def authenticate(auth_type, username, password, url=None):
 
 def basic_auth(username, password, url):
     """
-    Authentification Basic.
-    
-    Args:
-        username (str): Nom d'utilisateur
-        password (str): Mot de passe
-        url (str): URL à tester avec Basic Auth
-        
-    Returns:
-        dict: Résultat de l'authentification
+    Basic authentication.
     """
     if not url:
         # Authentification locale
@@ -143,25 +136,17 @@ def basic_auth(username, password, url):
 
 def form_auth(username, password, url):
     """
-    Authentification par formulaire.
-    
-    Args:
-        username (str): Nom d'utilisateur
-        password (str): Mot de passe
-        url (str): URL du formulaire d'authentification
-        
-    Returns:
-        dict: Résultat de l'authentification
+    Form authentication.
     """
     if not url:
         # Authentification locale
         return _local_auth(username, password)
     
-    # Déterminer les champs du formulaire (simple heuristique)
+    # Guess form fields (basic heuristic)
     username_field = "username"
     password_field = "password"
     
-    # Tenter de détecter les champs du formulaire
+    # Try to detect form fields
     try:
         response = requests.get(url)
         if "user" in response.text.lower() and "name" in response.text.lower():
@@ -174,18 +159,18 @@ def form_auth(username, password, url):
     except Exception:
         pass
     
-    # Préparer les données du formulaire
+    # Prepare form data
     data = {
         username_field: username,
         password_field: password
     }
     
-    # Envoyer la requête
+    # Send request
     try:
         session = requests.Session()
         response = session.post(url, data=data, allow_redirects=True)
         
-        # Vérifier si l'authentification a réussi (heuristique simple)
+        # Check if authentication succeeded (simple heuristic)
         success = response.status_code == 200 and "error" not in response.text.lower() and "invalid" not in response.text.lower()
         
         if success:
@@ -200,14 +185,7 @@ def form_auth(username, password, url):
 
 def jwt_auth(username, password):
     """
-    Authentification JWT.
-    
-    Args:
-        username (str): Nom d'utilisateur
-        password (str): Mot de passe
-        
-    Returns:
-        dict: Résultat de l'authentification et token JWT
+    JWT authentication.
     """
     # Authentification locale
     auth_result = _local_auth(username, password)
@@ -224,7 +202,7 @@ def jwt_auth(username, password):
         }
         token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
         
-        logger.info(f"Token JWT généré pour {username}")
+        logger.info(f"JWT token generated for {username}")
         return {
             "success": True,
             "token": token,
@@ -232,40 +210,27 @@ def jwt_auth(username, password):
             "role": auth_result["role"]
         }
     except Exception as e:
-        logger.error(f"Erreur lors de la génération du token JWT: {str(e)}")
+        logger.error(f"Error while generating JWT: {str(e)}")
         return {"success": False, "error": str(e)}
 
 def verify_jwt(token):
     """
-    Vérifie un token JWT.
-    
-    Args:
-        token (str): Token JWT à vérifier
-        
-    Returns:
-        dict: Informations sur le token si valide
+    Verify a JWT token.
     """
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        logger.info(f"Token JWT valide pour {payload['sub']}")
+        logger.info(f"JWT token valid for {payload['sub']}")
         return {"success": True, "username": payload["sub"], "role": payload["role"]}
     except jwt.ExpiredSignatureError:
-        logger.warning("Token JWT expiré")
+        logger.warning("JWT token expired")
         return {"success": False, "error": "Token expiré"}
     except jwt.InvalidTokenError:
-        logger.warning("Token JWT invalide")
+        logger.warning("JWT token invalid")
         return {"success": False, "error": "Token invalide"}
 
 def _local_auth(username, password):
     """
-    Authentification locale avec la base de données utilisateurs.
-    
-    Args:
-        username (str): Nom d'utilisateur
-        password (str): Mot de passe
-        
-    Returns:
-        dict: Résultat de l'authentification
+    Local authentication against the JSON users database.
     """
     # Charger la base de données utilisateurs
     with open(USER_DB, "r") as f:
@@ -276,39 +241,122 @@ def _local_auth(username, password):
         if user["username"] == username:
             # Vérifier le mot de passe
             if bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
-                logger.info(f"Authentification locale réussie pour {username}")
+                logger.info(f"Local authentication succeeded for {username}")
                 return {"success": True, "username": username, "role": user["role"]}
             else:
-                logger.warning(f"Mot de passe incorrect pour {username}")
+                logger.warning(f"Incorrect password for {username}")
                 return {"success": False, "error": "Mot de passe incorrect"}
     
-    logger.warning(f"Utilisateur {username} non trouvé")
+    logger.warning(f"User {username} not found")
     return {"success": False, "error": "Utilisateur non trouvé"}
 
 def run(url, options=None):
     """
-    Fonction principale pour l'exécution du module d'authentification.
-    
-    Args:
-        url (str): URL cible
-        options (dict, optional): Options supplémentaires
-        
-    Returns:
-        dict: Résultat de l'opération
+    Main entry point for the authentication module.
     """
     if not options:
         options = {}
     
+    action = options.get("action")
+    if action == "setup":
+        cfg = options
+        create_user = (cfg.get("create_user") or {})
+        username = create_user.get("username", "pentester")
+        email = create_user.get("email", f"{username}@example.com")
+        role = create_user.get("role", "pentester")
+        password = create_user.get("password", "S3cur3P@ssw0rd!")
+        reg = register(username=username, email=email, role=role, password=password)
+        if not reg.get("success"):
+            print("[-] Échec de la création de l'utilisateur")
+            return reg
+        print(f"[+] Utilisateur créé: {username}")
+
+        if cfg.get("save_token") and cfg.get("auth_method", "jwt") == "jwt":
+            jwt_res = jwt_auth(username, password)
+            if jwt_res.get("success"):
+                token_file = cfg.get("token_file", "auth_token.txt")
+                try:
+                    with open(token_file, "w") as f:
+                        f.write(jwt_res["token"]) 
+                    print(f"[+] Token JWT sauvegardé dans {token_file}")
+                except Exception as e:
+                    logger.error(f"Erreur lors de l'écriture du token: {str(e)}")
+            return jwt_res
+        return reg
+
+    # Mode test d'auth classique
     auth_type = options.get("type", "basic")
     username = options.get("username", "admin")
     password = options.get("password", "password")
-    
-    logger.info(f"Test d'authentification {auth_type} sur {url}")
+    logger.info(f"Authentication test {auth_type} on {url}")
     result = authenticate(auth_type, username, password, url)
-    
-    if result["success"]:
-        print(f"[+] Authentification {auth_type} réussie pour {username}")
+    if result.get("success"):
+        print(f"[+] {auth_type} authentication succeeded for {username}")
     else:
-        print(f"[-] Échec de l'authentification {auth_type} pour {username}")
-    
+        print(f"[-] {auth_type} authentication failed for {username}")
     return result
+
+
+class AuthManager:
+    """Compatibilité pour les tests hérités attendus.
+
+    Fournit une interface orientée objet pour gérer les utilisateurs dans un fichier JSON.
+    """
+
+    def __init__(self, db_path: Optional[str] = None) -> None:
+        self.db_path = db_path or USER_DB
+        # Si un chemin custom est fourni, l'utiliser (et initialiser si besoin)
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+        if not os.path.exists(self.db_path):
+            with open(self.db_path, "w") as f:
+                json.dump({"users": []}, f)
+
+    def _load(self):
+        with open(self.db_path, "r") as f:
+            return json.load(f)
+
+    def _save(self, data):
+        with open(self.db_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def register_user(self, username: str, email: str, password: str, role: str = "user"):
+        data = self._load()
+        for u in data.get("users", []):
+            if u["username"] == username or u["email"] == email:
+                return None
+        hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        user = {
+            "username": username,
+            "email": email,
+            "role": role,
+            "password_hash": hashed_password,
+            "created_at": datetime.datetime.now().isoformat(),
+        }
+        data.setdefault("users", []).append(user)
+        self._save(data)
+        return type("User", (), user)
+
+    def authenticate(self, username: str, password: str):
+        data = self._load()
+        for u in data.get("users", []):
+            if u["username"] == username and bcrypt.checkpw(password.encode("utf-8"), u["password_hash"].encode("utf-8")):
+                return type("User", (), u)
+        return None
+
+    def create_jwt_token(self, user) -> str:
+        payload = {
+            "sub": user.username,
+            "role": user.role,
+            "iat": datetime.datetime.utcnow(),
+            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24),
+        }
+        return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+    def verify_jwt_token(self, token: str):
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+            return type("User", (), {"username": payload["sub"], "role": payload["role"]})
+        except Exception:
+            return None

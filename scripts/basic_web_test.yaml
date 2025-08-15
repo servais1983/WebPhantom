@@ -3,4 +3,4 @@ target: http://testphp.vulnweb.com
 steps:
   - type: recon
   - type: scan
-  - type: ai_analysis
+  - type: ai

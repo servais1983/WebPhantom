@@ -1,4 +1,15 @@
-def run(url):
-    print(f"[*] Analyse simple basée sur des patterns HTML (demo IA) : {url}")
-    print("[+] (Démo) Aucune alerte détectée mais possibilité d'analyse avec un LLM local plus tard.")
-    # Pour l'instant, ce module est une base pour intégrer GPT ou GPT4All en local.
+def run(url, options=None):
+    """
+    Run real AI-assisted analysis using the LLM integration.
+
+    Defaults to Ollama (local server) if available.
+    """
+    if options is None:
+        options = {}
+
+    # Default to Ollama provider for real integration
+    options.setdefault("provider", "ollama")
+
+    from . import llm_integration
+
+    return llm_integration.run(url, options)

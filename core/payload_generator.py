@@ -1,6 +1,6 @@
 """
-Module de génération de charges utiles personnalisées pour WebPhantom.
-Supporte différents types d'attaques et transformations.
+Payload generation module for WebPhantom.
+Supports multiple attack categories and transformations.
 """
 
 import os
@@ -11,19 +11,33 @@ import random
 import string
 import logging
 import html
+import time
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 from Crypto.Random import get_random_bytes
+from typing import List, Dict, Any
 
-# Configuration du logging
+# Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Répertoire pour stocker les charges utiles
+# Directory to store payload sets
 PAYLOAD_DIR = os.path.expanduser("~/.webphantom/payloads")
 os.makedirs(PAYLOAD_DIR, exist_ok=True)
 
-# Charges utiles prédéfinies par catégorie
+# Catégories supportées
+PAYLOAD_CATEGORIES = [
+    "xss",
+    "sqli",
+    "xxe",
+    "csrf",
+    "ssrf",
+    "command_injection",
+    "path_traversal",
+    "ssti",
+]
+
+# Default payloads per category
 DEFAULT_PAYLOADS = {
     "xss": [
         "<script>alert(1)</script>",
@@ -88,6 +102,64 @@ DEFAULT_PAYLOADS = {
         "<#assign ex=\"freemarker.template.utility.Execute\"?new()>${ex(\"id\")}"
     ]
 }
+
+class PayloadTransformer:
+    """Transformations utilitaires sur les charges utiles (API utilisée par tests.py)."""
+
+    def url_encode(self, payload: str) -> str:
+        return urllib.parse.quote(payload)
+
+    def html_encode(self, payload: str) -> str:
+        return html.escape(payload)
+
+    def base64_encode(self, payload: str) -> str:
+        return base64.b64encode(payload.encode()).decode()
+
+    def obfuscate_js(self, payload: str) -> str:
+        return js_obfuscate(payload)
+
+    def obfuscate_sql(self, payload: str) -> str:
+        return sql_obfuscate(payload)
+
+
+class PayloadGenerator:
+    """Gestionnaire de charges utiles par catégories (API utilisée par tests.py)."""
+
+    def __init__(self, base_dir: str) -> None:
+        self.base_dir = base_dir
+        os.makedirs(self.base_dir, exist_ok=True)
+        for category in PAYLOAD_CATEGORIES:
+            os.makedirs(os.path.join(self.base_dir, category), exist_ok=True)
+
+    def _category_file(self, category: str, name: str = "default.json") -> str:
+        return os.path.join(self.base_dir, category, name)
+
+    def get_payloads(self, category: str) -> List[str]:
+        try:
+            default_file = self._category_file(category, "default.json")
+            if os.path.exists(default_file):
+                with open(default_file, "r") as f:
+                    data = json.load(f)
+                return data.get("payloads", [])
+        except Exception:
+            pass
+        return DEFAULT_PAYLOADS.get(category, [])
+
+    def create_payload_set(self, category: str, set_name: str, name: str, description: str, payloads: List[str]) -> bool:
+        try:
+            category_dir = os.path.join(self.base_dir, category)
+            os.makedirs(category_dir, exist_ok=True)
+            file_path = os.path.join(category_dir, f"{set_name}.json")
+            with open(file_path, "w") as f:
+                json.dump({
+                    "name": name,
+                    "description": description,
+                    "payloads": payloads,
+                }, f, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Erreur lors de la création de l'ensemble de charges utiles: {str(e)}")
+            return False
 
 def generate(payload_type, transform=None, output=None, custom_payloads=None):
     """
@@ -330,15 +402,49 @@ def run(url, options=None):
     if not options:
         options = {}
     
-    payload_type = options.get("type", "xss")
+    # Supporte deux modes: simple (type/transform) et avancé (categories/transformations/create_custom)
+    payload_type = options.get("type") or options.get("category", "xss")
     transform = options.get("transform", None)
     output = options.get("output", None)
-    
-    # Si aucun fichier de sortie n'est spécifié, en créer un dans le répertoire des résultats
-    if not output and options.get("results_dir"):
-        output = os.path.join(options.get("results_dir"), f"{payload_type}_payloads.json")
-    
-    logger.info(f"Génération de charges utiles de type {payload_type}")
-    result = generate(payload_type, transform, output)
-    
-    return result
+    results_dir = options.get("results_dir")
+
+    categories = options.get("categories")
+    transformations = options.get("transformations")
+    create_custom_cfg = options.get("create_custom")
+
+    combined_results: Dict[str, Any] = {"generated": []}
+
+    if categories:
+        for cat in categories:
+            if transformations:
+                for t in transformations:
+                    logger.info(f"Génération: catégorie={cat}, transformation={t}")
+                    partial_output = None
+                    if results_dir:
+                        partial_output = os.path.join(results_dir, f"{cat}_{t}_payloads.json")
+                    res = generate(cat, t, partial_output)
+                    combined_results["generated"].append(res)
+            else:
+                logger.info(f"Génération: catégorie={cat}")
+                partial_output = None
+                if results_dir:
+                    partial_output = os.path.join(results_dir, f"{cat}_payloads.json")
+                res = generate(cat, None, partial_output)
+                combined_results["generated"].append(res)
+
+    if create_custom_cfg:
+        logger.info("Création d'un ensemble de charges utiles personnalisées depuis la configuration")
+        create_custom_payload_set(
+            name=create_custom_cfg.get("set_name", create_custom_cfg.get("name", "custom_set")),
+            payload_type=create_custom_cfg.get("category", payload_type or "xss"),
+            payloads=create_custom_cfg.get("payloads", []),
+            description=create_custom_cfg.get("description"),
+        )
+
+    if not categories and payload_type:
+        if not output and results_dir:
+            output = os.path.join(results_dir, f"{payload_type}_payloads.json")
+        logger.info(f"Génération de charges utiles de type {payload_type}")
+        return generate(payload_type, transform, output)
+
+    return combined_results
